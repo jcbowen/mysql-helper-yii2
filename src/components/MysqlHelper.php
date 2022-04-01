@@ -6,31 +6,47 @@ use Yii;
 
 class MysqlHelper
 {
-    public function getTableSchema($db, $tablename = '')
+    public static function tableName($tableName): string
     {
-        $sql    = Yii::$app->db->quoteSql("SHOW TABLE STATUS LIKE '" . $tablename);
-        $sql    = str_replace("`", "", $sql);
-        $result = Yii::$app->db->createCommand($sql)->queryAll();
+        if (empty($tableName)) return '';
+        return trim(Yii::$app->db->quoteSql($tableName), '`');
+    }
+
+    /**
+     * 获取表结构
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param $tableName
+     * @return array
+     * @throws \yii\db\Exception
+     * @lasttime: 2022/4/1 11:44 PM
+     */
+    public function getTableSchema($tableName = '')
+    {
+        $tableName = self::tableName($tableName);
+        $result    = Yii::$app->db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
         if (empty($result)) return [];
         $ret              = [];
         $ret['tableName'] = $result['Name'];
         $ret['charset']   = $result['Collation'];
         $ret['engine']    = $result['Engine'];
         $ret['increment'] = $result['Auto_increment'];
-        $result           = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tablename)->all();
+        $result           = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
         foreach ($result as $value) {
             $temp                           = [];
             $type                           = explode(' ', $value['Type'], 2);
             $temp['name']                   = $value['Field'];
             $pieces                         = explode('(', $type[0], 2);
             $temp['type']                   = $pieces[0];
-            $temp['length']                 = rtrim($pieces[1], ')');
+            $temp['length']                 = !empty($pieces[1]) ? rtrim($pieces[1], ')') : '';
             $temp['null']                   = 'NO' != $value['Null'];
             $temp['signed']                 = empty($type[1]);
             $temp['increment']              = 'auto_increment' == $value['Extra'];
             $ret['fields'][$value['Field']] = $temp;
         }
-        $result = $db->fetchall('SHOW INDEX FROM ' . $db->tablename($tablename));
+        $result = Yii::$app->db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
         foreach ($result as $value) {
             $ret['indexes'][$value['Key_name']]['name']     = $value['Key_name'];
             $ret['indexes'][$value['Key_name']]['type']     = ('PRIMARY' == $value['Key_name']) ? 'primary' : (0 == $value['Non_unique'] ? 'unique' : 'index');

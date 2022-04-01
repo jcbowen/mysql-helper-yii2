@@ -2,12 +2,13 @@
 
 namespace Jcbowen\MysqlHelperYii2\console\controllers;
 
+use Jcbowen\MysqlHelperYii2\components\MysqlHelper;
 use yii\console\Controller;
 
 class TestController extends Controller
 {
     public function actionIndex()
     {
-        echo 666;
+        (new MysqlHelper())->getTableSchema('{{%page}}');
     }
 }
