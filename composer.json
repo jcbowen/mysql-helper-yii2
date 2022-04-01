@@ -1,33 +1,40 @@
 {
-    "name": "jcbowen/mysql-helper-yii2",
-    "description": "适用于yii2的数据库维护助手",
-    "type": "yii2-extension",
-    "license": "MIT",
-    "autoload": {
-        "psr-4": {
-            "Jcbowen\\MysqlHelperYii2\\": "src/"
-        }
-    },
-    "authors": [
-        {
-            "name": "Bowen",
-            "email": "bowen@jiuchet.com"
-        }
-    ],
-    "minimum-stability": "dev",
-    "require": {
-      "php": ">=7.4",
-      "yiisoft/yii2": "^2.0"
-    },
-    "repositories": {
-        "packagist": {
-            "type": "composer",
-            "url": "https://mirrors.aliyun.com/composer/"
-        }
-    },
-    "config": {
-        "allow-plugins": {
-            "yiisoft/yii2-composer": true
-        }
+  "name": "jcbowen/mysql-helper-yii2",
+  "description": "适用于yii2的数据库维护助手",
+  "keywords": [
+    "yii2",
+    "jcbowen",
+    "MysqlHelperYii2",
+    "Mysql Helper"
+  ],
+  "type": "yii2-extension",
+  "license": "MIT",
+  "autoload": {
+    "psr-4": {
+      "Jcbowen\\MysqlHelperYii2\\": "src/"
     }
+  },
+  "authors": [
+    {
+      "name": "Bowen",
+      "email": "bowen@jiuchet.com"
+    }
+  ],
+  "minimum-stability": "dev",
+  "require": {
+    "php": ">=7.4",
+    "yiisoft/yii2": "^2.0"
+  },
+  "repositories": {
+    "packagist": {
+      "type": "composer",
+      "url": "https://mirrors.aliyun.com/composer/"
+    }
+  },
+  "config": {
+    "process-timeout": 1800,
+    "allow-plugins": {
+      "yiisoft/yii2-composer": true
+    }
+  }
 }

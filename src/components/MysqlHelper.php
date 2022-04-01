@@ -8,30 +8,32 @@ class MysqlHelper
 {
     public function getTableSchema($db, $tablename = '')
     {
-        $result = Yii::$app->db->createCommand("SHOW TABLE STATUS LIKE '" . trim($tablename, '`') . "'")->execute();
+        $sql    = Yii::$app->db->quoteSql("SHOW TABLE STATUS LIKE '" . $tablename);
+        $sql    = str_replace("`", "", $sql);
+        $result = Yii::$app->db->createCommand($sql)->queryAll();
         if (empty($result)) return [];
-        $ret = [];
+        $ret              = [];
         $ret['tableName'] = $result['Name'];
-        $ret['charset'] = $result['Collation'];
-        $ret['engine'] = $result['Engine'];
+        $ret['charset']   = $result['Collation'];
+        $ret['engine']    = $result['Engine'];
         $ret['increment'] = $result['Auto_increment'];
-        $result = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tablename)->execute();
+        $result           = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tablename)->all();
         foreach ($result as $value) {
-            $temp = [];
-            $type = explode(' ', $value['Type'], 2);
-            $temp['name'] = $value['Field'];
-            $pieces = explode('(', $type[0], 2);
-            $temp['type'] = $pieces[0];
-            $temp['length'] = rtrim($pieces[1], ')');
-            $temp['null'] = 'NO' != $value['Null'];
-            $temp['signed'] = empty($type[1]);
-            $temp['increment'] = 'auto_increment' == $value['Extra'];
+            $temp                           = [];
+            $type                           = explode(' ', $value['Type'], 2);
+            $temp['name']                   = $value['Field'];
+            $pieces                         = explode('(', $type[0], 2);
+            $temp['type']                   = $pieces[0];
+            $temp['length']                 = rtrim($pieces[1], ')');
+            $temp['null']                   = 'NO' != $value['Null'];
+            $temp['signed']                 = empty($type[1]);
+            $temp['increment']              = 'auto_increment' == $value['Extra'];
             $ret['fields'][$value['Field']] = $temp;
         }
         $result = $db->fetchall('SHOW INDEX FROM ' . $db->tablename($tablename));
         foreach ($result as $value) {
-            $ret['indexes'][$value['Key_name']]['name'] = $value['Key_name'];
-            $ret['indexes'][$value['Key_name']]['type'] = ('PRIMARY' == $value['Key_name']) ? 'primary' : (0 == $value['Non_unique'] ? 'unique' : 'index');
+            $ret['indexes'][$value['Key_name']]['name']     = $value['Key_name'];
+            $ret['indexes'][$value['Key_name']]['type']     = ('PRIMARY' == $value['Key_name']) ? 'primary' : (0 == $value['Non_unique'] ? 'unique' : 'index');
             $ret['indexes'][$value['Key_name']]['fields'][] = $value['Column_name'];
         }
 
@@ -55,14 +57,14 @@ class MysqlHelper
 
     function db_table_create_sql($schema)
     {
-        $pieces = explode('_', $schema['charset']);
-        $charset = $pieces[0];
-        $engine = $schema['engine'];
+        $pieces              = explode('_', $schema['charset']);
+        $charset             = $pieces[0];
+        $engine              = $schema['engine'];
         $schema['tablename'] = str_replace('ims_', $GLOBALS['_W']['config']['db']['tablepre'], $schema['tablename']);
-        $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tablename']}` (\n";
+        $sql                 = "CREATE TABLE IF NOT EXISTS `{$schema['tablename']}` (\n";
         foreach ($schema['fields'] as $value) {
             $piece = _db_build_field_sql($value);
-            $sql .= "`{$value['name']}` {$piece},\n";
+            $sql   .= "`{$value['name']}` {$piece},\n";
         }
         foreach ($schema['indexes'] as $value) {
             $fields = implode('`,`', $value['fields']);
@@ -91,7 +93,7 @@ class MysqlHelper
 
         $fields1 = array_keys($table1['fields']);
         $fields2 = array_keys($table2['fields']);
-        $diffs = array_diff($fields1, $fields2);
+        $diffs   = array_diff($fields1, $fields2);
         if (!empty($diffs)) {
             $ret['fields']['greater'] = array_values($diffs);
         }
@@ -99,7 +101,7 @@ class MysqlHelper
         if (!empty($diffs)) {
             $ret['fields']['less'] = array_values($diffs);
         }
-        $diffs = array();
+        $diffs      = array();
         $intersects = array_intersect($fields1, $fields2);
         if (!empty($intersects)) {
             foreach ($intersects as $field) {
@@ -118,7 +120,7 @@ class MysqlHelper
 
         $indexes1 = is_array($table1['indexes']) ? array_keys($table1['indexes']) : array();
         $indexes2 = is_array($table2['indexes']) ? array_keys($table2['indexes']) : array();
-        $diffs = array_diff($indexes1, $indexes2);
+        $diffs    = array_diff($indexes1, $indexes2);
         if (!empty($diffs)) {
             $ret['indexes']['greater'] = array_values($diffs);
         }
@@ -126,7 +128,7 @@ class MysqlHelper
         if (!empty($diffs)) {
             $ret['indexes']['less'] = array_values($diffs);
         }
-        $diffs = array();
+        $diffs      = array();
         $intersects = array_intersect($indexes1, $indexes2);
         if (!empty($intersects)) {
             foreach ($intersects as $index) {
@@ -157,9 +159,9 @@ class MysqlHelper
         }
 
         if (!empty($diff['diffs']['charset'])) {
-            $pieces = explode('_', $schema2['charset']);
+            $pieces  = explode('_', $schema2['charset']);
             $charset = $pieces[0];
-            $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DEFAULT CHARSET = {$charset}";
+            $sqls[]  = "ALTER TABLE `{$schema1['tablename']}` DEFAULT CHARSET = {$charset}";
         }
 
         if (!empty($diff['fields'])) {
@@ -176,11 +178,11 @@ class MysqlHelper
                         }
                         $sql = "ALTER TABLE `{$schema1['tablename']}` ADD `{$field['name']}` {$piece}{$pos}";
                     }
-                    $primary = array();
+                    $primary     = array();
                     $isincrement = array();
                     if (strexists($sql, 'AUTO_INCREMENT')) {
                         $isincrement = $field;
-                        $sql = str_replace('AUTO_INCREMENT', '', $sql);
+                        $sql         = str_replace('AUTO_INCREMENT', '', $sql);
                         foreach ($schema1['fields'] as $field) {
                             if (1 == $field['increment']) {
                                 $primary = $field;
@@ -219,8 +221,8 @@ class MysqlHelper
         if (!empty($diff['indexes'])) {
             if (!empty($diff['indexes']['less'])) {
                 foreach ($diff['indexes']['less'] as $indexname) {
-                    $index = $schema2['indexes'][$indexname];
-                    $piece = _db_build_index_sql($index);
+                    $index  = $schema2['indexes'][$indexname];
+                    $piece  = _db_build_index_sql($index);
                     $sqls[] = "ALTER TABLE `{$schema1['tablename']}` ADD {$piece}";
                 }
             }
@@ -239,7 +241,7 @@ class MysqlHelper
             }
         }
         if (!empty($isincrement)) {
-            $piece = _db_build_field_sql($isincrement);
+            $piece  = _db_build_field_sql($isincrement);
             $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$isincrement['name']}` `{$isincrement['name']}` {$piece}";
         }
 
@@ -248,7 +250,7 @@ class MysqlHelper
 
     function _db_build_index_sql($index)
     {
-        $piece = '';
+        $piece  = '';
         $fields = implode('`,`', $index['fields']);
         if ('index' == $index['type']) {
             $piece .= " INDEX `{$index['name']}` (`{$fields}`)";
@@ -301,8 +303,8 @@ class MysqlHelper
     function db_table_schemas($table)
     {
         $dump = "DROP TABLE IF EXISTS {$table};\n";
-        $sql = "SHOW CREATE TABLE {$table}";
-        $row = pdo_fetch($sql);
+        $sql  = "SHOW CREATE TABLE {$table}";
+        $row  = pdo_fetch($sql);
         $dump .= $row['Create Table'];
         $dump .= ";\n\n";
 
@@ -311,9 +313,9 @@ class MysqlHelper
 
     function db_table_insert_sql($tablename, $start, $size)
     {
-        $data = '';
-        $tmp = '';
-        $sql = "SELECT * FROM {$tablename} LIMIT :start, :size";
+        $data   = '';
+        $tmp    = '';
+        $sql    = "SELECT * FROM {$tablename} LIMIT :start, :size";
         $result = pdo_fetchall($sql, array(':start' => $start, ':size' => $size));
         if (!empty($result)) {
             foreach ($result as $row) {
@@ -328,13 +330,13 @@ class MysqlHelper
                         '\\"',
                         '\\Z'
                     ), $v);
-                    $tmp .= "'" . $value . "',";
+                    $tmp   .= "'" . $value . "',";
                 }
                 $tmp = rtrim($tmp, ',');
                 $tmp .= "),\n";
             }
-            $tmp = rtrim($tmp, ",\n");
-            $data .= "INSERT INTO {$tablename} VALUES \n{$tmp};\n";
+            $tmp   = rtrim($tmp, ",\n");
+            $data  .= "INSERT INTO {$tablename} VALUES \n{$tmp};\n";
             $datas = array(
                 'data'   => $data,
                 'result' => $result,
