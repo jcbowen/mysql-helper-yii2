@@ -9,6 +9,7 @@ class TestController extends Controller
 {
     public function actionIndex()
     {
-        (new MysqlHelper())->getTableSchema('{{%page}}');
+        print_r((new MysqlHelper())->tableInsertSql('{{%page}}', 0, 2));
     }
+
 }

@@ -3,13 +3,62 @@
 namespace Jcbowen\MysqlHelperYii2\components;
 
 use Yii;
+use yii\db\Exception;
 
 class MysqlHelper
 {
+    /**
+     * 获取库名称
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param string|null $dsn
+     * @return string
+     * @lasttime: 2022/4/2 10:17 AM
+     */
+    public function getDBName(?string $dsn = ''): string
+    {
+        $dsn      = $dsn ?: Yii::$app->db->dsn;
+        $dsnParam = explode(';', $dsn);
+        $items    = [];
+        foreach ($dsnParam as $item) {
+            $itemArr            = explode('=', $item);
+            $items[$itemArr[0]] = $itemArr[1];
+        }
+        $data = array_filter($items, function ($key) {
+            return 'dbname' == $key;
+        }, ARRAY_FILTER_USE_KEY);
+
+        return array_values($data)[0];
+    }
+
+    /**
+     * 获取完整表名称
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param $tableName
+     * @return string
+     * @lasttime: 2022/4/2 1:05 PM
+     */
     public static function tableName($tableName): string
     {
         if (empty($tableName)) return '';
-        return trim(Yii::$app->db->quoteSql($tableName), '`');
+
+        // 判断表名是否包含表前缀
+        $dbPrefix = Yii::$app->db->tablePrefix;
+        if (strpos($tableName, $dbPrefix) !== false) {
+            return $tableName;
+        } else {
+            // 判断是否通过Yii的方法转化表名
+            if (strpos($tableName, '{{') !== false) {
+                return trim(Yii::$app->db->quoteSql($tableName), '`');
+            } else {
+                return $dbPrefix . $tableName;
+            }
+        }
     }
 
     /**
@@ -18,12 +67,12 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param $tableName
+     * @param string $tableName
      * @return array
-     * @throws \yii\db\Exception
+     * @throws Exception
      * @lasttime: 2022/4/1 11:44 PM
      */
-    public function getTableSchema($tableName = '')
+    public function getTableSchema(string $tableName = ''): array
     {
         $tableName = self::tableName($tableName);
         $result    = Yii::$app->db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
@@ -56,30 +105,50 @@ class MysqlHelper
         return $ret;
     }
 
-
-    function db_table_serialize($db, $dbname)
+    /**
+     * 获取数据库所有表的序列化结构
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param string $dbname
+     * @return string
+     * @throws Exception
+     * @lasttime: 2022/4/2 11:33 AM
+     */
+    public function getTableSerialize(string $dbname = ''): string
     {
-        $tables = $db->fetchall('SHOW TABLES');
-        if (empty($tables)) {
-            return '';
-        }
-        $struct = array();
+        $dbname = $dbname ?: $this->getDBName();
+        $tables = Yii::$app->db->createCommand("SHOW TABLES")->queryAll();
+        if (empty($tables)) return '';
+        $structs = [];
         foreach ($tables as $value) {
-            $structs[] = db_table_schema($db, substr($value['Tables_in_' . $dbname], strpos($value['Tables_in_' . $dbname], '_') + 1));
+            $structs[] = $this->getTableSchema(substr($value['Tables_in_' . $dbname], strpos($value['Tables_in_' . $dbname], '_') + 1));
         }
-
-        return iserializer($structs);
+        return serialize($structs);
     }
 
-    function db_table_create_sql($schema)
+    /**
+     * 生成建表语句
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param $schema
+     * @return string
+     * @lasttime: 2022/4/2 11:06 PM
+     */
+    function makeCreateSql($schema): string
     {
-        $pieces              = explode('_', $schema['charset']);
-        $charset             = $pieces[0];
-        $engine              = $schema['engine'];
-        $schema['tablename'] = str_replace('ims_', $GLOBALS['_W']['config']['db']['tablepre'], $schema['tablename']);
-        $sql                 = "CREATE TABLE IF NOT EXISTS `{$schema['tablename']}` (\n";
+        $pieces  = explode('_', $schema['charset']);
+        $charset = $pieces[0];
+        $engine  = $schema['engine'];
+
+        $schema['tablename'] = str_replace('jc_', Yii::$app->db->tablePrefix, $schema['tablename']);
+
+        $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tablename']}` (\n";
         foreach ($schema['fields'] as $value) {
-            $piece = _db_build_field_sql($value);
+            $piece = $this->buildFieldSql($value);
             $sql   .= "`{$value['name']}` {$piece},\n";
         }
         foreach ($schema['indexes'] as $value) {
@@ -102,10 +171,20 @@ class MysqlHelper
         return $sql;
     }
 
-
-    function db_schema_compare($table1, $table2)
+    /**
+     * 比较两张表的结构
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param $table1
+     * @param $table2
+     * @return array
+     * @lasttime: 2022/4/2 11:05 PM
+     */
+    public function schemaCompare($table1, $table2): array
     {
-        $table1['charset'] == $table2['charset'] ? '' : $ret['diffs']['charset'] = true;
+        $ret['diffs']['charset'] = $table1['charset'] != $table2['charset'];
 
         $fields1 = array_keys($table1['fields']);
         $fields2 = array_keys($table2['fields']);
@@ -117,11 +196,11 @@ class MysqlHelper
         if (!empty($diffs)) {
             $ret['fields']['less'] = array_values($diffs);
         }
-        $diffs      = array();
+        $diffs      = [];
         $intersects = array_intersect($fields1, $fields2);
         if (!empty($intersects)) {
             foreach ($intersects as $field) {
-                if (in_array($table2['fields'][$field]['type'], array('int', 'tinyint', 'smallint', 'bigint'))) {
+                if (in_array($table2['fields'][$field]['type'], ['int', 'tinyint', 'smallint', 'bigint'])) {
                     unset($table1['fields'][$field]['length']);
                     unset($table2['fields'][$field]['length']);
                 }
@@ -130,46 +209,51 @@ class MysqlHelper
                 }
             }
         }
-        if (!empty($diffs)) {
-            $ret['fields']['diff'] = array_values($diffs);
-        }
+        if (!empty($diffs)) $ret['fields']['diff'] = array_values($diffs);
 
-        $indexes1 = is_array($table1['indexes']) ? array_keys($table1['indexes']) : array();
-        $indexes2 = is_array($table2['indexes']) ? array_keys($table2['indexes']) : array();
-        $diffs    = array_diff($indexes1, $indexes2);
-        if (!empty($diffs)) {
-            $ret['indexes']['greater'] = array_values($diffs);
-        }
+        $indexes1 = is_array($table1['indexes']) ? array_keys($table1['indexes']) : [];
+        $indexes2 = is_array($table2['indexes']) ? array_keys($table2['indexes']) : [];
+
+        $diffs = array_diff($indexes1, $indexes2);
+        if (!empty($diffs)) $ret['indexes']['greater'] = array_values($diffs);
+
         $diffs = array_diff($indexes2, $indexes1);
-        if (!empty($diffs)) {
-            $ret['indexes']['less'] = array_values($diffs);
-        }
-        $diffs      = array();
+        if (!empty($diffs)) $ret['indexes']['less'] = array_values($diffs);
+
+        $diffs      = [];
         $intersects = array_intersect($indexes1, $indexes2);
         if (!empty($intersects)) {
             foreach ($intersects as $index) {
-                if ($table1['indexes'][$index] != $table2['indexes'][$index]) {
-                    $diffs[] = $index;
-                }
+                if ($table1['indexes'][$index] != $table2['indexes'][$index]) $diffs[] = $index;
             }
         }
-        if (!empty($diffs)) {
-            $ret['indexes']['diff'] = array_values($diffs);
-        }
+        if (!empty($diffs)) $ret['indexes']['diff'] = array_values($diffs);
 
         return $ret;
     }
 
-    function db_table_fix_sql($schema1, $schema2, $strict = false)
+    /**
+     * 创建修复两张差异表的语句
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param array $schema1 表结构,需要修复的表
+     * @param array $schema2 表结构,基准表
+     * @param bool $strict
+     * @return array|string[]
+     * @lasttime: 2022/4/2 11:08 PM
+     */
+    public function makeFixSql(array $schema1, array $schema2, bool $strict = false)
     {
         if (empty($schema1)) {
-            return array(db_table_create_sql($schema2));
+            return [$this->makeCreateSql($schema2)];
         }
-        $diff = $result = db_schema_compare($schema1, $schema2);
+        $diff = $this->schemaCompare($schema1, $schema2);
         if (!empty($diff['diffs']['tablename'])) {
-            return array(db_table_create_sql($schema2));
+            return [$this->makeCreateSql($schema2)];
         }
-        $sqls = array();
+        $sqls = [];
         if (!empty($diff['diffs']['engine'])) {
             $sqls[] = "ALTER TABLE `{$schema1['tablename']}` ENGINE = {$schema2['engine']}";
         }
@@ -182,9 +266,9 @@ class MysqlHelper
 
         if (!empty($diff['fields'])) {
             if (!empty($diff['fields']['less'])) {
-                foreach ($diff['fields']['less'] as $fieldname) {
-                    $field = $schema2['fields'][$fieldname];
-                    $piece = _db_build_field_sql($field);
+                foreach ($diff['fields']['less'] as $fieldName) {
+                    $field = $schema2['fields'][$fieldName];
+                    $piece = $this->buildFieldSql($field);
                     if (!empty($field['rename']) && !empty($schema1['fields'][$field['rename']])) {
                         $sql = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$field['rename']}` `{$field['name']}` {$piece}";
                         unset($schema1['fields'][$field['rename']]);
@@ -194,10 +278,11 @@ class MysqlHelper
                         }
                         $sql = "ALTER TABLE `{$schema1['tablename']}` ADD `{$field['name']}` {$piece}{$pos}";
                     }
-                    $primary     = array();
-                    $isincrement = array();
-                    if (strexists($sql, 'AUTO_INCREMENT')) {
-                        $isincrement = $field;
+                    $primary     = [];
+                    $isIncrement = [];
+                    // 判断sql语句中是否含有AUTO_INCREMENT
+                    if (strpos($sql, 'AUTO_INCREMENT') !== false) {
+                        $isIncrement = $field;
                         $sql         = str_replace('AUTO_INCREMENT', '', $sql);
                         foreach ($schema1['fields'] as $field) {
                             if (1 == $field['increment']) {
@@ -206,7 +291,7 @@ class MysqlHelper
                             }
                         }
                         if (!empty($primary)) {
-                            $piece = _db_build_field_sql($primary);
+                            $piece = $this->buildFieldSql($primary);
                             if (!empty($piece)) {
                                 $piece = str_replace('AUTO_INCREMENT', '', $piece);
                             }
@@ -217,18 +302,18 @@ class MysqlHelper
                 }
             }
             if (!empty($diff['fields']['diff'])) {
-                foreach ($diff['fields']['diff'] as $fieldname) {
-                    $field = $schema2['fields'][$fieldname];
-                    $piece = _db_build_field_sql($field);
-                    if (!empty($schema1['fields'][$fieldname])) {
+                foreach ($diff['fields']['diff'] as $fieldName) {
+                    $field = $schema2['fields'][$fieldName];
+                    $piece = $this->buildFieldSql($field);
+                    if (!empty($schema1['fields'][$fieldName])) {
                         $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$field['name']}` `{$field['name']}` {$piece}";
                     }
                 }
             }
             if ($strict && !empty($diff['fields']['greater'])) {
-                foreach ($diff['fields']['greater'] as $fieldname) {
-                    if (!empty($schema1['fields'][$fieldname])) {
-                        $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DROP `{$fieldname}`";
+                foreach ($diff['fields']['greater'] as $fieldName) {
+                    if (!empty($schema1['fields'][$fieldName])) {
+                        $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DROP `{$fieldName}`";
                     }
                 }
             }
@@ -238,14 +323,14 @@ class MysqlHelper
             if (!empty($diff['indexes']['less'])) {
                 foreach ($diff['indexes']['less'] as $indexname) {
                     $index  = $schema2['indexes'][$indexname];
-                    $piece  = _db_build_index_sql($index);
+                    $piece  = $this->buildIndexSql($index);
                     $sqls[] = "ALTER TABLE `{$schema1['tablename']}` ADD {$piece}";
                 }
             }
             if (!empty($diff['indexes']['diff'])) {
                 foreach ($diff['indexes']['diff'] as $indexname) {
                     $index = $schema2['indexes'][$indexname];
-                    $piece = _db_build_index_sql($index);
+                    $piece = $this->buildIndexSql($index);
 
                     $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DROP " . ('PRIMARY' == $indexname ? ' PRIMARY KEY ' : "INDEX {$indexname}") . ", ADD {$piece}";
                 }
@@ -256,15 +341,25 @@ class MysqlHelper
                 }
             }
         }
-        if (!empty($isincrement)) {
-            $piece  = _db_build_field_sql($isincrement);
-            $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$isincrement['name']}` `{$isincrement['name']}` {$piece}";
+        if (!empty($isIncrement)) {
+            $piece  = $this->buildFieldSql($isIncrement);
+            $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
         }
 
         return $sqls;
     }
 
-    function _db_build_index_sql($index)
+    /**
+     * 构造索引sql语句
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param $index
+     * @return string
+     * @lasttime: 2022/4/2 10:46 PM
+     */
+    public function buildIndexSql($index): string
     {
         $piece  = '';
         $fields = implode('`,`', $index['fields']);
@@ -281,62 +376,80 @@ class MysqlHelper
         return $piece;
     }
 
-    function _db_build_field_sql($field)
+    /**
+     * 构造完整字段的SQL语句.
+     *
+     * @param array $field
+     * @return string
+     */
+    public function buildFieldSql(array $field): string
     {
-        if (!empty($field['length'])) {
-            $length = "({$field['length']})";
-        } else {
-            $length = '';
-        }
-        if (false !== strpos(strtolower($field['type']), 'int') || in_array(strtolower($field['type']), array(
+        $length = !empty($field['length']) ? "({$field['length']})" : '';
+        if (false !== strpos(strtolower($field['type']), 'int') || in_array(strtolower($field['type']), [
                 'decimal',
                 'float',
                 'dobule'
-            ))) {
+            ])) {
             $signed = empty($field['signed']) ? ' unsigned' : '';
         } else {
             $signed = '';
         }
-        if (empty($field['null'])) {
-            $null = ' NOT NULL';
-        } else {
-            $null = '';
-        }
-        if (isset($field['default'])) {
-            $default = " DEFAULT '" . $field['default'] . "'";
-        } else {
-            $default = '';
-        }
-        if ($field['increment']) {
-            $increment = ' AUTO_INCREMENT';
-        } else {
-            $increment = '';
-        }
+        $null      = empty($field['null']) ? ' NOT NULL' : '';
+        $default   = isset($field['default']) ? " DEFAULT '" . $field['default'] . "'" : '';
+        $increment = $field['increment'] ? ' AUTO_INCREMENT' : '';
 
         return "{$field['type']}{$length}{$signed}{$null}{$default}{$increment}";
     }
 
-    function db_table_schemas($table)
+    /**
+     * 根据表名生成建表语句
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param $tableName
+     * @return string
+     * @throws Exception
+     * @lasttime: 2022/4/2 10:37 PM
+     */
+    public function tableSchemas($tableName): string
     {
-        $dump = "DROP TABLE IF EXISTS {$table};\n";
-        $sql  = "SHOW CREATE TABLE {$table}";
-        $row  = pdo_fetch($sql);
+        $tableName = self::tableName($tableName);
+
+        $dump = "DROP TABLE IF EXISTS {$tableName};\n";
+        $sql  = "SHOW CREATE TABLE {$tableName}";
+        $row  = Yii::$app->db->createCommand($sql)->queryOne();
         $dump .= $row['Create Table'];
         $dump .= ";\n\n";
 
         return $dump;
     }
 
-    function db_table_insert_sql($tablename, $start, $size)
+    /**
+     * 获取某个表的insert语句
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param $tableName
+     * @param $start
+     * @param $size
+     * @return array|false
+     * @throws Exception
+     * @lasttime: 2022/4/2 10:41 PM
+     */
+    public function tableInsertSql($tableName, $start, $size)
     {
+        $tableName = self::tableName($tableName);
+
         $data   = '';
         $tmp    = '';
-        $sql    = "SELECT * FROM {$tablename} LIMIT :start, :size";
-        $result = pdo_fetchall($sql, array(':start' => $start, ':size' => $size));
+        $sql    = "SELECT * FROM {$tableName} LIMIT :start, :size";
+        $result = Yii::$app->db->createCommand($sql)->bindValues([':start' => $start, ':size' => $size])->queryAll();
         if (!empty($result)) {
             foreach ($result as $row) {
                 $tmp .= '(';
-                foreach ($row as $k => $v) {
+                foreach ($row as $v) {
                     $value = str_replace(array('\\', "\0", "\n", "\r", "'", '"', "\x1a"), array(
                         '\\\\',
                         '\\0',
@@ -351,14 +464,12 @@ class MysqlHelper
                 $tmp = rtrim($tmp, ',');
                 $tmp .= "),\n";
             }
-            $tmp   = rtrim($tmp, ",\n");
-            $data  .= "INSERT INTO {$tablename} VALUES \n{$tmp};\n";
-            $datas = array(
+            $tmp  = rtrim($tmp, ",\n");
+            $data .= "INSERT INTO {$tableName} VALUES \n{$tmp};\n";
+            return [
                 'data'   => $data,
                 'result' => $result,
-            );
-
-            return $datas;
+            ];
         } else {
             return false;
         }
