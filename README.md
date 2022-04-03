@@ -6,11 +6,11 @@
 [![Latest Stable Version](https://img.shields.io/packagist/v/jcbowen/mysql-helper-yii2.svg)](https://packagist.org/packages/jcbowen/mysql-helper-yii2)
 [![Total Downloads](https://img.shields.io/packagist/dt/jcbowen/mysql-helper-yii2.svg)](https://packagist.org/packages/jcbowen/mysql-helper-yii2)
 
-使用环境
+基本要求
 ------------
 
-- 基于yii 2.0.x
-- PHP版本为7.4.x
+- yii 2.x
+- PHP版本为7.x
 
 安装
 -------------
