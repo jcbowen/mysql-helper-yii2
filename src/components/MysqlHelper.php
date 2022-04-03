@@ -129,7 +129,7 @@ class MysqlHelper
     }
 
     /**
-     * 生成建表语句
+     * 根据结构生成建表语句
      *
      * @author Bowen
      * @email bowen@jiuchet.com
@@ -240,7 +240,7 @@ class MysqlHelper
      *
      * @param array $schema1 表结构,需要修复的表
      * @param array $schema2 表结构,基准表
-     * @param bool $strict
+     * @param bool $strict 使用严格模式, 严格模式将会把表2完全变成表1的结构, 否则将只处理表2种大于表1的内容(多出的字段和索引)
      * @return array
      * @lasttime: 2022/4/2 11:08 PM
      */
