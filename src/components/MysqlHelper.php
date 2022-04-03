@@ -144,9 +144,9 @@ class MysqlHelper
         $charset = $pieces[0];
         $engine  = $schema['engine'];
 
-        $schema['tablename'] = str_replace('jc_', Yii::$app->db->tablePrefix, $schema['tablename']);
+        $schema['tableName'] = str_replace('jc_', Yii::$app->db->tablePrefix, $schema['tableName']);
 
-        $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tablename']}` (\n";
+        $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tableName']}` (\n";
         foreach ($schema['fields'] as $value) {
             $piece = self::buildFieldSql($value);
             $sql   .= "`{$value['name']}` {$piece},\n";
@@ -250,18 +250,18 @@ class MysqlHelper
             return [self::makeCreateSql($schema2)];
         }
         $diff = self::schemaCompare($schema1, $schema2);
-        if (!empty($diff['diffs']['tablename'])) {
+        if (!empty($diff['diffs']['tableName'])) {
             return [self::makeCreateSql($schema2)];
         }
         $sqls = [];
         if (!empty($diff['diffs']['engine'])) {
-            $sqls[] = "ALTER TABLE `{$schema1['tablename']}` ENGINE = {$schema2['engine']}";
+            $sqls[] = "ALTER TABLE `{$schema1['tableName']}` ENGINE = {$schema2['engine']}";
         }
 
         if (!empty($diff['diffs']['charset'])) {
             $pieces  = explode('_', $schema2['charset']);
             $charset = $pieces[0];
-            $sqls[]  = "ALTER TABLE `{$schema1['tablename']}` DEFAULT CHARSET = {$charset}";
+            $sqls[]  = "ALTER TABLE `{$schema1['tableName']}` DEFAULT CHARSET = {$charset}";
         }
 
         if (!empty($diff['fields'])) {
@@ -270,13 +270,13 @@ class MysqlHelper
                     $field = $schema2['fields'][$fieldName];
                     $piece = self::buildFieldSql($field);
                     if (!empty($field['rename']) && !empty($schema1['fields'][$field['rename']])) {
-                        $sql = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$field['rename']}` `{$field['name']}` {$piece}";
+                        $sql = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['rename']}` `{$field['name']}` {$piece}";
                         unset($schema1['fields'][$field['rename']]);
                     } else {
                         if ($field['position']) {
                             $pos = ' ' . $field['position'];
                         }
-                        $sql = "ALTER TABLE `{$schema1['tablename']}` ADD `{$field['name']}` {$piece}{$pos}";
+                        $sql = "ALTER TABLE `{$schema1['tableName']}` ADD `{$field['name']}` {$piece}{$pos}";
                     }
                     $primary     = [];
                     $isIncrement = [];
@@ -295,7 +295,7 @@ class MysqlHelper
                             if (!empty($piece)) {
                                 $piece = str_replace('AUTO_INCREMENT', '', $piece);
                             }
-                            $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$primary['name']}` `{$primary['name']}` {$piece}";
+                            $sqls[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$primary['name']}` `{$primary['name']}` {$piece}";
                         }
                     }
                     $sqls[] = $sql;
@@ -306,14 +306,14 @@ class MysqlHelper
                     $field = $schema2['fields'][$fieldName];
                     $piece = self::buildFieldSql($field);
                     if (!empty($schema1['fields'][$fieldName])) {
-                        $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$field['name']}` `{$field['name']}` {$piece}";
+                        $sqls[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['name']}` `{$field['name']}` {$piece}";
                     }
                 }
             }
             if ($strict && !empty($diff['fields']['greater'])) {
                 foreach ($diff['fields']['greater'] as $fieldName) {
                     if (!empty($schema1['fields'][$fieldName])) {
-                        $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DROP `{$fieldName}`";
+                        $sqls[] = "ALTER TABLE `{$schema1['tableName']}` DROP `{$fieldName}`";
                     }
                 }
             }
@@ -324,7 +324,7 @@ class MysqlHelper
                 foreach ($diff['indexes']['less'] as $indexname) {
                     $index  = $schema2['indexes'][$indexname];
                     $piece  = self::buildIndexSql($index);
-                    $sqls[] = "ALTER TABLE `{$schema1['tablename']}` ADD {$piece}";
+                    $sqls[] = "ALTER TABLE `{$schema1['tableName']}` ADD {$piece}";
                 }
             }
             if (!empty($diff['indexes']['diff'])) {
@@ -332,18 +332,18 @@ class MysqlHelper
                     $index = $schema2['indexes'][$indexname];
                     $piece = self::buildIndexSql($index);
 
-                    $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DROP " . ('PRIMARY' == $indexname ? ' PRIMARY KEY ' : "INDEX {$indexname}") . ", ADD {$piece}";
+                    $sqls[] = "ALTER TABLE `{$schema1['tableName']}` DROP " . ('PRIMARY' == $indexname ? ' PRIMARY KEY ' : "INDEX {$indexname}") . ", ADD {$piece}";
                 }
             }
             if ($strict && !empty($diff['indexes']['greater'])) {
                 foreach ($diff['indexes']['greater'] as $indexname) {
-                    $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DROP `{$indexname}`";
+                    $sqls[] = "ALTER TABLE `{$schema1['tableName']}` DROP `{$indexname}`";
                 }
             }
         }
         if (!empty($isIncrement)) {
             $piece  = self::buildFieldSql($isIncrement);
-            $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
+            $sqls[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
         }
 
         return $sqls;
