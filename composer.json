@@ -1,6 +1,6 @@
 {
   "name": "jcbowen/mysql-helper-yii2",
-  "description": "适用于yii2的数据库维护助手",
+  "description": "基于yii2的mysql维护助手，可以将表结构以数组方式储存下来，也可以轻松实现表的差异对比及生成对应的修复sql语句",
   "keywords": [
     "yii2",
     "jcbowen",
