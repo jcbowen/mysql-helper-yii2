@@ -17,7 +17,7 @@ class MysqlHelper
      * @return string
      * @lasttime: 2022/4/2 10:17 AM
      */
-    public function getDBName(?string $dsn = ''): string
+    public static function getDBName(?string $dsn = ''): string
     {
         $dsn      = $dsn ?: Yii::$app->db->dsn;
         $dsnParam = explode(';', $dsn);
@@ -72,7 +72,7 @@ class MysqlHelper
      * @throws Exception
      * @lasttime: 2022/4/1 11:44 PM
      */
-    public function getTableSchema(string $tableName = ''): array
+    public static function getTableSchema(string $tableName = ''): array
     {
         $tableName = self::tableName($tableName);
         $result    = Yii::$app->db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
@@ -116,14 +116,14 @@ class MysqlHelper
      * @throws Exception
      * @lasttime: 2022/4/2 11:33 AM
      */
-    public function getTableSerialize(string $dbname = ''): string
+    public static function getTableSerialize(string $dbname = ''): string
     {
-        $dbname = $dbname ?: $this->getDBName();
+        $dbname = $dbname ?: self::getDBName();
         $tables = Yii::$app->db->createCommand("SHOW TABLES")->queryAll();
         if (empty($tables)) return '';
         $structs = [];
         foreach ($tables as $value) {
-            $structs[] = $this->getTableSchema(substr($value['Tables_in_' . $dbname], strpos($value['Tables_in_' . $dbname], '_') + 1));
+            $structs[] = self::getTableSchema(substr($value['Tables_in_' . $dbname], strpos($value['Tables_in_' . $dbname], '_') + 1));
         }
         return serialize($structs);
     }
@@ -138,7 +138,7 @@ class MysqlHelper
      * @return string
      * @lasttime: 2022/4/2 11:06 PM
      */
-    function makeCreateSql($schema): string
+    public static function makeCreateSql($schema): string
     {
         $pieces  = explode('_', $schema['charset']);
         $charset = $pieces[0];
@@ -148,7 +148,7 @@ class MysqlHelper
 
         $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tablename']}` (\n";
         foreach ($schema['fields'] as $value) {
-            $piece = $this->buildFieldSql($value);
+            $piece = self::buildFieldSql($value);
             $sql   .= "`{$value['name']}` {$piece},\n";
         }
         foreach ($schema['indexes'] as $value) {
@@ -182,7 +182,7 @@ class MysqlHelper
      * @return array
      * @lasttime: 2022/4/2 11:05 PM
      */
-    public function schemaCompare($table1, $table2): array
+    public static function schemaCompare($table1, $table2): array
     {
         $ret['diffs']['charset'] = $table1['charset'] != $table2['charset'];
 
@@ -241,17 +241,17 @@ class MysqlHelper
      * @param array $schema1 表结构,需要修复的表
      * @param array $schema2 表结构,基准表
      * @param bool $strict
-     * @return array|string[]
+     * @return array
      * @lasttime: 2022/4/2 11:08 PM
      */
-    public function makeFixSql(array $schema1, array $schema2, bool $strict = false)
+    public static function makeFixSql(array $schema1, array $schema2, bool $strict = false): array
     {
         if (empty($schema1)) {
-            return [$this->makeCreateSql($schema2)];
+            return [self::makeCreateSql($schema2)];
         }
-        $diff = $this->schemaCompare($schema1, $schema2);
+        $diff = self::schemaCompare($schema1, $schema2);
         if (!empty($diff['diffs']['tablename'])) {
-            return [$this->makeCreateSql($schema2)];
+            return [self::makeCreateSql($schema2)];
         }
         $sqls = [];
         if (!empty($diff['diffs']['engine'])) {
@@ -268,7 +268,7 @@ class MysqlHelper
             if (!empty($diff['fields']['less'])) {
                 foreach ($diff['fields']['less'] as $fieldName) {
                     $field = $schema2['fields'][$fieldName];
-                    $piece = $this->buildFieldSql($field);
+                    $piece = self::buildFieldSql($field);
                     if (!empty($field['rename']) && !empty($schema1['fields'][$field['rename']])) {
                         $sql = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$field['rename']}` `{$field['name']}` {$piece}";
                         unset($schema1['fields'][$field['rename']]);
@@ -291,7 +291,7 @@ class MysqlHelper
                             }
                         }
                         if (!empty($primary)) {
-                            $piece = $this->buildFieldSql($primary);
+                            $piece = self::buildFieldSql($primary);
                             if (!empty($piece)) {
                                 $piece = str_replace('AUTO_INCREMENT', '', $piece);
                             }
@@ -304,7 +304,7 @@ class MysqlHelper
             if (!empty($diff['fields']['diff'])) {
                 foreach ($diff['fields']['diff'] as $fieldName) {
                     $field = $schema2['fields'][$fieldName];
-                    $piece = $this->buildFieldSql($field);
+                    $piece = self::buildFieldSql($field);
                     if (!empty($schema1['fields'][$fieldName])) {
                         $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$field['name']}` `{$field['name']}` {$piece}";
                     }
@@ -323,14 +323,14 @@ class MysqlHelper
             if (!empty($diff['indexes']['less'])) {
                 foreach ($diff['indexes']['less'] as $indexname) {
                     $index  = $schema2['indexes'][$indexname];
-                    $piece  = $this->buildIndexSql($index);
+                    $piece  = self::buildIndexSql($index);
                     $sqls[] = "ALTER TABLE `{$schema1['tablename']}` ADD {$piece}";
                 }
             }
             if (!empty($diff['indexes']['diff'])) {
                 foreach ($diff['indexes']['diff'] as $indexname) {
                     $index = $schema2['indexes'][$indexname];
-                    $piece = $this->buildIndexSql($index);
+                    $piece = self::buildIndexSql($index);
 
                     $sqls[] = "ALTER TABLE `{$schema1['tablename']}` DROP " . ('PRIMARY' == $indexname ? ' PRIMARY KEY ' : "INDEX {$indexname}") . ", ADD {$piece}";
                 }
@@ -342,7 +342,7 @@ class MysqlHelper
             }
         }
         if (!empty($isIncrement)) {
-            $piece  = $this->buildFieldSql($isIncrement);
+            $piece  = self::buildFieldSql($isIncrement);
             $sqls[] = "ALTER TABLE `{$schema1['tablename']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
         }
 
@@ -359,7 +359,7 @@ class MysqlHelper
      * @return string
      * @lasttime: 2022/4/2 10:46 PM
      */
-    public function buildIndexSql($index): string
+    public static function buildIndexSql($index): string
     {
         $piece  = '';
         $fields = implode('`,`', $index['fields']);
@@ -382,7 +382,7 @@ class MysqlHelper
      * @param array $field
      * @return string
      */
-    public function buildFieldSql(array $field): string
+    public static function buildFieldSql(array $field): string
     {
         $length = !empty($field['length']) ? "({$field['length']})" : '';
         if (false !== strpos(strtolower($field['type']), 'int') || in_array(strtolower($field['type']), [
@@ -412,7 +412,7 @@ class MysqlHelper
      * @throws Exception
      * @lasttime: 2022/4/2 10:37 PM
      */
-    public function tableSchemas($tableName): string
+    public static function tableSchemas($tableName): string
     {
         $tableName = self::tableName($tableName);
 
@@ -438,7 +438,7 @@ class MysqlHelper
      * @throws Exception
      * @lasttime: 2022/4/2 10:41 PM
      */
-    public function tableInsertSql($tableName, $start, $size)
+    public static function tableInsertSql($tableName, $start, $size)
     {
         $tableName = self::tableName($tableName);
 
