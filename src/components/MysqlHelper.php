@@ -91,8 +91,10 @@ class MysqlHelper
             $temp['type']                   = $pieces[0];
             $temp['length']                 = !empty($pieces[1]) ? rtrim($pieces[1], ')') : '';
             $temp['null']                   = 'NO' != $value['Null'];
+            $temp['default']                = $value['Default'];
             $temp['signed']                 = empty($type[1]);
             $temp['increment']              = 'auto_increment' == $value['Extra'];
+            $temp['comment']                = $value['Comment'] ?: '';
             $ret['fields'][$value['Field']] = $temp;
         }
         $result = Yii::$app->db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
