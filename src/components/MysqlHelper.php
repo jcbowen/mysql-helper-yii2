@@ -399,8 +399,9 @@ class MysqlHelper
         $null      = empty($field['null']) ? ' NOT NULL' : '';
         $default   = isset($field['default']) ? " DEFAULT '" . $field['default'] . "'" : '';
         $increment = $field['increment'] ? ' AUTO_INCREMENT' : '';
+        $comment   = !empty($field['comment']) ? " COMMENT '{$field['comment']}'" : '';
 
-        return "{$field['type']}{$length}{$signed}{$null}{$default}{$increment}";
+        return "{$field['type']}{$length}{$signed}{$null}{$default}{$increment}{$comment}";
     }
 
     /**
