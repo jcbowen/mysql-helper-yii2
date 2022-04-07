@@ -44,5 +44,6 @@ Jcbowen\MysqlHelperYii2\MysqlHelperYii2::getTableSchema($tableName);
 Jcbowen\MysqlHelperYii2\MysqlHelperYii2::makeFixSql(array $schema1, array $schema2, bool $strict = false);
 ```
 
-
-
+注意
+-------------
+- 已有字段如果之前被设置为了NULL，后续在设置基准表的时候，一定不要设置为NOT NULL，否则会报错

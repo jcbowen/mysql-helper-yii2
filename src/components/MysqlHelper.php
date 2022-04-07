@@ -13,7 +13,7 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param string|null $dsn
+     * @param string|null $dsn 数据库连接DSN
      * @return string
      * @lasttime: 2022/4/2 10:17 AM
      */
@@ -39,11 +39,11 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param $tableName
+     * @param string $tableName 表名称
      * @return string
      * @lasttime: 2022/4/2 1:05 PM
      */
-    public static function tableName($tableName): string
+    public static function tableName(string $tableName): string
     {
         if (empty($tableName)) return '';
 
@@ -67,7 +67,7 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param string $tableName
+     * @param string $tableName 表名
      * @return array
      * @throws Exception
      * @lasttime: 2022/4/1 11:44 PM
@@ -84,17 +84,18 @@ class MysqlHelper
         $ret['increment'] = $result['Auto_increment'];
         $result           = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
         foreach ($result as $value) {
-            $temp                           = [];
-            $type                           = explode(' ', $value['Type'], 2);
-            $temp['name']                   = $value['Field'];
-            $pieces                         = explode('(', $type[0], 2);
-            $temp['type']                   = $pieces[0];
-            $temp['length']                 = !empty($pieces[1]) ? rtrim($pieces[1], ')') : '';
-            $temp['null']                   = 'NO' != $value['Null'];
-            $temp['default']                = $value['Default'];
-            $temp['signed']                 = empty($type[1]);
-            $temp['increment']              = 'auto_increment' == $value['Extra'];
-            $temp['comment']                = $value['Comment'] ?: '';
+            $temp              = [];
+            $type              = explode(' ', $value['Type'], 2);
+            $temp['name']      = $value['Field'];
+            $pieces            = explode('(', $type[0], 2);
+            $temp['type']      = $pieces[0];
+            $temp['length']    = !empty($pieces[1]) ? rtrim($pieces[1], ')') : '';
+            $temp['null']      = 'NO' != $value['Null'];
+            $temp['default']   = $value['Default'];
+            $temp['signed']    = empty($type[1]);
+            $temp['increment'] = 'auto_increment' == $value['Extra'];
+            $temp['comment']   = $value['Comment'] ?: '';
+
             $ret['fields'][$value['Field']] = $temp;
         }
         $result = Yii::$app->db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
@@ -113,7 +114,7 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param string $dbname
+     * @param string $dbname 数据库名称
      * @return string
      * @throws Exception
      * @lasttime: 2022/4/2 11:33 AM
@@ -136,7 +137,7 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param $schema
+     * @param array $schema 表结构
      * @return string
      * @lasttime: 2022/4/2 11:06 PM
      */
@@ -179,12 +180,12 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param $table1
-     * @param $table2
+     * @param array $table1 表1的结构
+     * @param array $table2 表2的结构，基准表
      * @return array
      * @lasttime: 2022/4/2 11:05 PM
      */
-    public static function schemaCompare($table1, $table2): array
+    public static function schemaCompare(array $table1, array $table2): array
     {
         $ret['diffs']['charset'] = $table1['charset'] != $table2['charset'];
 
@@ -240,8 +241,8 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param array $schema1 表结构,需要修复的表
-     * @param array $schema2 表结构,基准表
+     * @param array $schema1 表1的结构,需要修复的表
+     * @param array $schema2 表2的结构,基准表
      * @param bool $strict 使用严格模式, 严格模式将会把表2完全变成表1的结构, 否则将只处理表2种大于表1的内容(多出的字段和索引)
      * @return array
      * @lasttime: 2022/4/2 11:08 PM
@@ -357,11 +358,11 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param $index
+     * @param array $index 索引信息
      * @return string
      * @lasttime: 2022/4/2 10:46 PM
      */
-    public static function buildIndexSql($index): string
+    public static function buildIndexSql(array $index): string
     {
         $piece  = '';
         $fields = implode('`,`', $index['fields']);
@@ -381,7 +382,7 @@ class MysqlHelper
     /**
      * 构造完整字段的SQL语句.
      *
-     * @param array $field
+     * @param array $field 字段信息
      * @return string
      */
     public static function buildFieldSql(array $field): string
@@ -410,12 +411,12 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param $tableName
+     * @param string $tableName 表名
      * @return string
      * @throws Exception
      * @lasttime: 2022/4/2 10:37 PM
      */
-    public static function tableSchemas($tableName): string
+    public static function tableSchemas(string $tableName): string
     {
         $tableName = self::tableName($tableName);
 
@@ -434,14 +435,14 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param $tableName
-     * @param $start
-     * @param $size
+     * @param string $tableName 表名
+     * @param integer $start 起始行
+     * @param integer $size 每次查询的行数
      * @return array|false
      * @throws Exception
      * @lasttime: 2022/4/2 10:41 PM
      */
-    public static function tableInsertSql($tableName, $start, $size)
+    public static function tableInsertSql(string $tableName, int $start, int $size)
     {
         $tableName = self::tableName($tableName);
 
