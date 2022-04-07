@@ -68,11 +68,13 @@ class MysqlHelper
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名
+     * @param bool $getDefault 是否获取字段默认值
+     * @param bool $getComment 是否获取字段注释
      * @return array
      * @throws Exception
      * @lasttime: 2022/4/1 11:44 PM
      */
-    public static function getTableSchema(string $tableName = ''): array
+    public static function getTableSchema(string $tableName = '', bool $getDefault = true, bool $getComment = true): array
     {
         $tableName = self::tableName($tableName);
         $result    = Yii::$app->db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
@@ -84,18 +86,17 @@ class MysqlHelper
         $ret['increment'] = $result['Auto_increment'];
         $result           = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
         foreach ($result as $value) {
-            $temp              = [];
-            $type              = explode(' ', $value['Type'], 2);
-            $temp['name']      = $value['Field'];
-            $pieces            = explode('(', $type[0], 2);
-            $temp['type']      = $pieces[0];
-            $temp['length']    = !empty($pieces[1]) ? rtrim($pieces[1], ')') : '';
-            $temp['null']      = 'NO' != $value['Null'];
-            $temp['default']   = $value['Default'];
+            $temp           = [];
+            $type           = explode(' ', $value['Type'], 2);
+            $temp['name']   = $value['Field'];
+            $pieces         = explode('(', $type[0], 2);
+            $temp['type']   = $pieces[0];
+            $temp['length'] = !empty($pieces[1]) ? rtrim($pieces[1], ')') : '';
+            $temp['null']   = 'NO' != $value['Null'];
+            if ($getDefault) $temp['default'] = $value['Default'];
             $temp['signed']    = empty($type[1]);
             $temp['increment'] = 'auto_increment' == $value['Extra'];
-            $temp['comment']   = $value['Comment'] ?: '';
-
+            if ($getComment) $temp['comment'] = $value['Comment'] ?: '';
             $ret['fields'][$value['Field']] = $temp;
         }
         $result = Yii::$app->db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
