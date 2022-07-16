@@ -4,5 +4,5 @@
 composer.lock
 composer.phar
 /vendor/
-/console/
+/src/console/
 TestController.php
