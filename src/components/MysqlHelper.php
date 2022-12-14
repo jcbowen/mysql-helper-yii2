@@ -446,6 +446,8 @@ class MysqlHelper
      */
     public static function tableInsertSql(string $tableName, int $batchSize = 100, Connection $db = null)
     {
+        $tableName = self::tableName($tableName);
+
         $data      = [];
         $insertSql = '';
         $tmp       = '';
@@ -473,13 +475,12 @@ class MysqlHelper
         if (empty($data))
             return false;
 
-        $tmp        = rtrim($tmp, ",\n");
-        $table_name = self::tableName($tableName);
-        $insertSql  .= "INSERT INTO $table_name VALUES \n$tmp;\n";
+        $tmp       = rtrim($tmp, ",\n");
+        $insertSql .= "INSERT INTO $tableName VALUES \n$tmp;\n";
 
         return [
-            'sql'    => $insertSql,
-            'result' => $data,
+            'sql'  => $insertSql,
+            'data' => $data,
         ];
     }
 }
