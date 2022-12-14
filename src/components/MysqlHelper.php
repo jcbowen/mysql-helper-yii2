@@ -3,7 +3,9 @@
 namespace Jcbowen\MysqlHelperYii2\components;
 
 use Yii;
+use yii\db\Connection;
 use yii\db\Exception;
+use yii\db\Query;
 
 class MysqlHelper
 {
@@ -431,52 +433,53 @@ class MysqlHelper
     }
 
     /**
-     * 获取某个表的insert语句
+     * 获取指定表的insert语句
      *
      * @author Bowen
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名
-     * @param integer $start 起始行
-     * @param integer $size 每次查询的行数
+     * @param int $batchSize 每次查询的条数
+     * @param Connection|null $db 数据库连接
      * @return array|false
-     * @throws Exception
-     * @lasttime: 2022/4/2 10:41 PM
+     * @lasttime: 2022/12/14 13:53
      */
-    public static function tableInsertSql(string $tableName, int $start, int $size)
+    public static function tableInsertSql(string $tableName, int $batchSize = 100, Connection $db = null)
     {
-        $tableName = self::tableName($tableName);
+        $data      = [];
+        $insertSql = '';
+        $tmp       = '';
 
-        $data   = '';
-        $tmp    = '';
-        $sql    = "SELECT * FROM {$tableName} LIMIT :start, :size";
-        $result = Yii::$app->db->createCommand($sql)->bindValues([':start' => $start, ':size' => $size])->queryAll();
-        if (!empty($result)) {
-            foreach ($result as $row) {
-                $tmp .= '(';
-                foreach ($row as $v) {
-                    $value = str_replace(array('\\', "\0", "\n", "\r", "'", '"', "\x1a"), array(
-                        '\\\\',
-                        '\\0',
-                        '\\n',
-                        '\\r',
-                        "\\'",
-                        '\\"',
-                        '\\Z'
-                    ), $v);
-                    $tmp   .= "'" . $value . "',";
-                }
-                $tmp = rtrim($tmp, ',');
-                $tmp .= "),\n";
+        $query = (new Query())->from($tableName);
+        foreach ($query->each($batchSize, $db) as $row) {
+            $data[] = $row;
+            $tmp    .= '(';
+            foreach ($row as $v) {
+                $value = str_replace(array('\\', "\0", "\n", "\r", "'", '"', "\x1a"), array(
+                    '\\\\',
+                    '\\0',
+                    '\\n',
+                    '\\r',
+                    "\\'",
+                    '\\"',
+                    '\\Z'
+                ), $v);
+                $tmp   .= "'" . $value . "',";
             }
-            $tmp  = rtrim($tmp, ",\n");
-            $data .= "INSERT INTO {$tableName} VALUES \n{$tmp};\n";
-            return [
-                'data'   => $data,
-                'result' => $result,
-            ];
-        } else {
-            return false;
+            $tmp = rtrim($tmp, ',');
+            $tmp .= "),\n";
         }
+
+        if (empty($data))
+            return false;
+
+        $tmp        = rtrim($tmp, ",\n");
+        $table_name = self::tableName($tableName);
+        $insertSql  .= "INSERT INTO $table_name VALUES \n$tmp;\n";
+
+        return [
+            'sql'    => $insertSql,
+            'result' => $data,
+        ];
     }
 }
