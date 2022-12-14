@@ -23,7 +23,8 @@
   "minimum-stability": "dev",
   "require": {
     "php": ">=7.1.0",
-    "yiisoft/yii2": "^2.0"
+    "yiisoft/yii2": "^2.0",
+    "ext-pdo": "*"
   },
   "repositories": {
     "packagist": {

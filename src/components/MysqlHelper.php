@@ -439,25 +439,36 @@ class MysqlHelper
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名
+     * @param bool $truncate 是否清空表
      * @param int $batchSize 每次查询的条数
      * @param Connection|null $db 数据库连接
      * @return array|false
+     * @throws Exception
      * @lasttime: 2022/12/14 13:53
      */
-    public static function tableInsertSql(string $tableName, int $batchSize = 100, Connection $db = null)
+    public static function tableInsertSql(string $tableName, bool $truncate = false, int $batchSize = 100, Connection $db = null)
     {
         $tableName = self::tableName($tableName);
 
         $data      = [];
         $insertSql = '';
-        $tmp       = '';
+        $filedTmp  = [];
+        $valueTmp  = '';
 
+        // 获取字段名
+        $columns = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
+        foreach ($columns as $column) $filedTmp[] = "`{$column['Field']}`";
+
+        if (empty($filedTmp)) return false;
+
+        // 批处理查询
         $query = (new Query())->from($tableName);
+        Yii::$app->db->pdo->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
         foreach ($query->each($batchSize, $db) as $row) {
-            $data[] = $row;
-            $tmp    .= '(';
+            $data[]   = $row;
+            $valueTmp .= '(';
             foreach ($row as $v) {
-                $value = str_replace(array('\\', "\0", "\n", "\r", "'", '"', "\x1a"), array(
+                $value    = str_replace(array('\\', "\0", "\n", "\r", "'", '"', "\x1a"), array(
                     '\\\\',
                     '\\0',
                     '\\n',
@@ -466,17 +477,19 @@ class MysqlHelper
                     '\\"',
                     '\\Z'
                 ), $v);
-                $tmp   .= "'" . $value . "',";
+                $valueTmp .= "'" . $value . "',";
             }
-            $tmp = rtrim($tmp, ',');
-            $tmp .= "),\n";
+            $valueTmp = rtrim($valueTmp, ',');
+            $valueTmp .= "),\n";
         }
+        Yii::$app->db->pdo->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
 
         if (empty($data))
             return false;
 
-        $tmp       = rtrim($tmp, ",\n");
-        $insertSql .= "INSERT INTO $tableName VALUES \n$tmp;\n";
+        $valueTmp = rtrim($valueTmp, ",\n");
+        if ($truncate) $insertSql .= "TRUNCATE TABLE {$tableName};\n";
+        $insertSql .= "INSERT INTO $tableName (" . implode(',', $filedTmp) . ") VALUES \n$valueTmp;\n";
 
         return [
             'sql'  => $insertSql,
