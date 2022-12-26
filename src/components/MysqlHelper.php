@@ -6,6 +6,7 @@ use Yii;
 use yii\db\Connection;
 use yii\db\Exception;
 use yii\db\Query;
+use yii\helpers\ArrayHelper;
 
 class MysqlHelper
 {
@@ -439,15 +440,20 @@ class MysqlHelper
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名
-     * @param bool $truncate 是否清空表
-     * @param int $batchSize 每次查询的条数
+     * @param array $opt 是否清空表
+     * - bool $truncate 是否清空表
+     * - bool $ignore 是否使用INSERT IGNORE INTO
+     * - int $batchSize 每次查询的条数
      * @param Connection|null $db 数据库连接
      * @return array|false
      * @throws Exception
      * @lasttime: 2022/12/14 13:53
      */
-    public static function tableInsertSql(string $tableName, bool $truncate = false, int $batchSize = 100, Connection $db = null)
+    public static function tableInsertSql(string $tableName, array $opt = [], Connection $db = null)
     {
+        // 合并默认选项
+        $opt = ArrayHelper::toArray(['truncate' => false, 'ignore' => false, 'batchSize' => 100], $opt);
+
         $tableName = self::tableName($tableName);
 
         $data      = [];
@@ -464,7 +470,7 @@ class MysqlHelper
         // 批处理查询
         $query = (new Query())->from($tableName);
         Yii::$app->db->pdo->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
-        foreach ($query->each($batchSize, $db) as $row) {
+        foreach ($query->each($opt['batchSize'], $db) as $row) {
             $data[]   = $row;
             $valueTmp .= '(';
             foreach ($row as $v) {
@@ -488,8 +494,10 @@ class MysqlHelper
             return false;
 
         $valueTmp = rtrim($valueTmp, ",\n");
-        if ($truncate) $insertSql .= "TRUNCATE TABLE {$tableName};\n";
-        $insertSql .= "INSERT INTO $tableName (" . implode(',', $filedTmp) . ") VALUES \n$valueTmp;\n";
+        if ($opt['truncate']) $insertSql .= "TRUNCATE TABLE {$tableName};\n";
+        $insertSql .= "INSERT ";
+        if ($opt['ignore']) $insertSql .= "IGNORE ";
+        $insertSql .= "INTO $tableName (" . implode(',', $filedTmp) . ") VALUES \n$valueTmp;\n";
 
         return [
             'sql'  => $insertSql,
