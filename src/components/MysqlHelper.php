@@ -452,7 +452,7 @@ class MysqlHelper
     public static function tableInsertSql(string $tableName, array $opt = [], Connection $db = null)
     {
         // 合并默认选项
-        $opt = ArrayHelper::toArray(['truncate' => false, 'ignore' => false, 'batchSize' => 100], $opt);
+        $opt = ArrayHelper::merge(['truncate' => false, 'ignore' => false, 'batchSize' => 100], $opt);
 
         $tableName = self::tableName($tableName);
 
