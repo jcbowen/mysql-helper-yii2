@@ -2,6 +2,7 @@
 
 namespace Jcbowen\MysqlHelperYii2\components;
 
+use PDO;
 use Yii;
 use yii\db\Connection;
 use yii\db\Exception;
@@ -145,7 +146,7 @@ class MysqlHelper
      * @return string
      * @lasttime: 2022/4/2 11:06 PM
      */
-    public static function makeCreateSql($schema): string
+    public static function makeCreateSql(array $schema): string
     {
         $pieces  = explode('_', $schema['charset']);
         $charset = $pieces[0];
@@ -156,18 +157,18 @@ class MysqlHelper
         $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tableName']}` (\n";
         foreach ($schema['fields'] as $value) {
             $piece = self::buildFieldSql($value);
-            $sql   .= "`{$value['name']}` {$piece},\n";
+            $sql   .= "`{$value['name']}` $piece,\n";
         }
         foreach ($schema['indexes'] as $value) {
             $fields = implode('`,`', $value['fields']);
             if ('index' == $value['type']) {
-                $sql .= "KEY `{$value['name']}` (`{$fields}`),\n";
+                $sql .= "KEY `{$value['name']}` (`$fields`),\n";
             }
             if ('unique' == $value['type']) {
-                $sql .= "UNIQUE KEY `{$value['name']}` (`{$fields}`),\n";
+                $sql .= "UNIQUE KEY `{$value['name']}` (`$fields`),\n";
             }
             if ('primary' == $value['type']) {
-                $sql .= "PRIMARY KEY (`{$fields}`),\n";
+                $sql .= "PRIMARY KEY (`$fields`),\n";
             }
         }
         $sql = rtrim($sql);
@@ -260,15 +261,15 @@ class MysqlHelper
         if (!empty($diff['diffs']['tableName'])) {
             return [self::makeCreateSql($schema2)];
         }
-        $sqls = [];
+        $sqlArr = [];
         if (!empty($diff['diffs']['engine'])) {
-            $sqls[] = "ALTER TABLE `{$schema1['tableName']}` ENGINE = {$schema2['engine']}";
+            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` ENGINE = {$schema2['engine']}";
         }
 
         if (!empty($diff['diffs']['charset'])) {
             $pieces  = explode('_', $schema2['charset']);
             $charset = $pieces[0];
-            $sqls[]  = "ALTER TABLE `{$schema1['tableName']}` DEFAULT CHARSET = {$charset}";
+            $sqlArr[]  = "ALTER TABLE `{$schema1['tableName']}` DEFAULT CHARSET = {$charset}";
         }
 
         if (!empty($diff['fields'])) {
@@ -280,6 +281,7 @@ class MysqlHelper
                         $sql = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['rename']}` `{$field['name']}` {$piece}";
                         unset($schema1['fields'][$field['rename']]);
                     } else {
+                        $pos = '';
                         if ($field['position']) {
                             $pos = ' ' . $field['position'];
                         }
@@ -302,10 +304,10 @@ class MysqlHelper
                             if (!empty($piece)) {
                                 $piece = str_replace('AUTO_INCREMENT', '', $piece);
                             }
-                            $sqls[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$primary['name']}` `{$primary['name']}` {$piece}";
+                            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$primary['name']}` `{$primary['name']}` {$piece}";
                         }
                     }
-                    $sqls[] = $sql;
+                    $sqlArr[] = $sql;
                 }
             }
             if (!empty($diff['fields']['diff'])) {
@@ -313,14 +315,14 @@ class MysqlHelper
                     $field = $schema2['fields'][$fieldName];
                     $piece = self::buildFieldSql($field);
                     if (!empty($schema1['fields'][$fieldName])) {
-                        $sqls[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['name']}` `{$field['name']}` {$piece}";
+                        $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['name']}` `{$field['name']}` {$piece}";
                     }
                 }
             }
             if ($strict && !empty($diff['fields']['greater'])) {
                 foreach ($diff['fields']['greater'] as $fieldName) {
                     if (!empty($schema1['fields'][$fieldName])) {
-                        $sqls[] = "ALTER TABLE `{$schema1['tableName']}` DROP `{$fieldName}`";
+                        $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DROP `$fieldName`";
                     }
                 }
             }
@@ -328,32 +330,32 @@ class MysqlHelper
 
         if (!empty($diff['indexes'])) {
             if (!empty($diff['indexes']['less'])) {
-                foreach ($diff['indexes']['less'] as $indexname) {
-                    $index  = $schema2['indexes'][$indexname];
+                foreach ($diff['indexes']['less'] as $indexName) {
+                    $index  = $schema2['indexes'][$indexName];
                     $piece  = self::buildIndexSql($index);
-                    $sqls[] = "ALTER TABLE `{$schema1['tableName']}` ADD {$piece}";
+                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` ADD {$piece}";
                 }
             }
             if (!empty($diff['indexes']['diff'])) {
-                foreach ($diff['indexes']['diff'] as $indexname) {
-                    $index = $schema2['indexes'][$indexname];
+                foreach ($diff['indexes']['diff'] as $indexName) {
+                    $index = $schema2['indexes'][$indexName];
                     $piece = self::buildIndexSql($index);
 
-                    $sqls[] = "ALTER TABLE `{$schema1['tableName']}` DROP " . ('PRIMARY' == $indexname ? ' PRIMARY KEY ' : "INDEX {$indexname}") . ", ADD {$piece}";
+                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DROP " . ('PRIMARY' == $indexName ? ' PRIMARY KEY ' : "INDEX $indexName") . ", ADD {$piece}";
                 }
             }
             if ($strict && !empty($diff['indexes']['greater'])) {
-                foreach ($diff['indexes']['greater'] as $indexname) {
-                    $sqls[] = "ALTER TABLE `{$schema1['tableName']}` DROP `{$indexname}`";
+                foreach ($diff['indexes']['greater'] as $indexName) {
+                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DROP `$indexName`";
                 }
             }
         }
         if (!empty($isIncrement)) {
             $piece  = self::buildFieldSql($isIncrement);
-            $sqls[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
+            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
         }
 
-        return $sqls;
+        return $sqlArr;
     }
 
     /**
@@ -371,13 +373,13 @@ class MysqlHelper
         $piece  = '';
         $fields = implode('`,`', $index['fields']);
         if ('index' == $index['type']) {
-            $piece .= " INDEX `{$index['name']}` (`{$fields}`)";
+            $piece .= " INDEX `{$index['name']}` (`$fields`)";
         }
         if ('unique' == $index['type']) {
-            $piece .= "UNIQUE `{$index['name']}` (`{$fields}`)";
+            $piece .= "UNIQUE `{$index['name']}` (`$fields`)";
         }
         if ('primary' == $index['type']) {
-            $piece .= "PRIMARY KEY (`{$fields}`)";
+            $piece .= "PRIMARY KEY (`$fields`)";
         }
 
         return $piece;
@@ -424,8 +426,8 @@ class MysqlHelper
     {
         $tableName = self::tableName($tableName);
 
-        $dump = "DROP TABLE IF EXISTS {$tableName};\n";
-        $sql  = "SHOW CREATE TABLE {$tableName}";
+        $dump = "DROP TABLE IF EXISTS $tableName;\n";
+        $sql  = "SHOW CREATE TABLE $tableName";
         $row  = Yii::$app->db->createCommand($sql)->queryOne();
         $dump .= $row['Create Table'];
         $dump .= ";\n\n";
@@ -469,7 +471,7 @@ class MysqlHelper
 
         // 批处理查询
         $query = (new Query())->from($tableName);
-        Yii::$app->db->pdo->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+        Yii::$app->db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
         foreach ($query->each($opt['batchSize'], $db) as $row) {
             $data[]   = $row;
             $valueTmp .= '(';
@@ -488,13 +490,13 @@ class MysqlHelper
             $valueTmp = rtrim($valueTmp, ',');
             $valueTmp .= "),\n";
         }
-        Yii::$app->db->pdo->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
+        Yii::$app->db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
 
         if (empty($data))
             return false;
 
         $valueTmp = rtrim($valueTmp, ",\n");
-        if ($opt['truncate']) $insertSql .= "TRUNCATE TABLE {$tableName};\n";
+        if ($opt['truncate']) $insertSql .= "TRUNCATE TABLE $tableName;\n";
         $insertSql .= "INSERT ";
         if ($opt['ignore']) $insertSql .= "IGNORE ";
         $insertSql .= "INTO $tableName (" . implode(',', $filedTmp) . ") VALUES \n$valueTmp;\n";
