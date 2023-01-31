@@ -267,9 +267,9 @@ class MysqlHelper
         }
 
         if (!empty($diff['diffs']['charset'])) {
-            $pieces  = explode('_', $schema2['charset']);
-            $charset = $pieces[0];
-            $sqlArr[]  = "ALTER TABLE `{$schema1['tableName']}` DEFAULT CHARSET = {$charset}";
+            $pieces   = explode('_', $schema2['charset']);
+            $charset  = $pieces[0];
+            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DEFAULT CHARSET = {$charset}";
         }
 
         if (!empty($diff['fields'])) {
@@ -282,7 +282,7 @@ class MysqlHelper
                         unset($schema1['fields'][$field['rename']]);
                     } else {
                         $pos = '';
-                        if ($field['position']) {
+                        if (!empty($field['position'])) {
                             $pos = ' ' . $field['position'];
                         }
                         $sql = "ALTER TABLE `{$schema1['tableName']}` ADD `{$field['name']}` {$piece}{$pos}";
@@ -331,8 +331,8 @@ class MysqlHelper
         if (!empty($diff['indexes'])) {
             if (!empty($diff['indexes']['less'])) {
                 foreach ($diff['indexes']['less'] as $indexName) {
-                    $index  = $schema2['indexes'][$indexName];
-                    $piece  = self::buildIndexSql($index);
+                    $index    = $schema2['indexes'][$indexName];
+                    $piece    = self::buildIndexSql($index);
                     $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` ADD {$piece}";
                 }
             }
@@ -351,7 +351,7 @@ class MysqlHelper
             }
         }
         if (!empty($isIncrement)) {
-            $piece  = self::buildFieldSql($isIncrement);
+            $piece    = self::buildFieldSql($isIncrement);
             $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
         }
 
