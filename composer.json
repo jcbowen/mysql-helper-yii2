@@ -32,6 +32,11 @@
       "url": "https://mirrors.aliyun.com/composer/"
     }
   },
+  "extra": {
+    "branch-alias": {
+      "dev-master": "0.x-dev"
+    }
+  },
   "config": {
     "process-timeout": 1800,
     "allow-plugins": {
