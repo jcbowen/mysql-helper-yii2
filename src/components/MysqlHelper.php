@@ -12,6 +12,11 @@ use yii\helpers\ArrayHelper;
 class MysqlHelper
 {
     /**
+     * @var string 默认表前缀
+     */
+    private static $defaultPrefix = 'jc_';
+
+    /**
      * 获取库名称
      *
      * @author Bowen
@@ -51,8 +56,14 @@ class MysqlHelper
     {
         if (empty($tableName)) return '';
 
-        // 判断表名是否包含表前缀
         $dbPrefix = Yii::$app->db->tablePrefix;
+
+        // 判断表名是否包含jc_表前缀
+        if (substr_compare($tableName, self::$defaultPrefix, 0, strlen(self::$defaultPrefix)) === 0) {
+            $tableName = self::str_replace_once(self::$defaultPrefix, $dbPrefix, $tableName);
+        }
+
+        // 判断表名是否包含表前缀
         if (strpos($tableName, $dbPrefix) !== false) {
             return $tableName;
         } else {
@@ -152,7 +163,7 @@ class MysqlHelper
         $charset = $pieces[0];
         $engine  = $schema['engine'];
 
-        $schema['tableName'] = str_replace('jc_', Yii::$app->db->tablePrefix, $schema['tableName']);
+        $schema['tableName'] = self::tableName($schema['tableName']);
 
         $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tableName']}` (\n";
         foreach ($schema['fields'] as $value) {
@@ -177,6 +188,22 @@ class MysqlHelper
         $sql .= "\n) ENGINE=$engine DEFAULT CHARSET=$charset;\n\n";
 
         return $sql;
+    }
+
+    /**
+     * 根据表名生成删除表语句
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param string $tableName
+     * @return string
+     * @lasttime: 2023/2/14 4:03 PM
+     */
+    public static function makeDropSql(string $tableName): string
+    {
+        $tableName = self::tableName($tableName);
+        return "DROP TABLE IF EXISTS `$tableName`;\n\n";
     }
 
     /**
@@ -256,6 +283,10 @@ class MysqlHelper
     {
         if (empty($schema1)) {
             return [self::makeCreateSql($schema2)];
+        }
+        if (empty($schema2)) {
+            if (!$strict) return [];
+            return [self::makeDropSql(self::tableName($schema1['tableName']))];
         }
         $diff = self::schemaCompare($schema1, $schema2);
         if (!empty($diff['diffs']['tableName'])) {
@@ -505,5 +536,28 @@ class MysqlHelper
             'sql'  => $insertSql,
             'data' => $data,
         ];
+    }
+
+    // ------ 以下为私有辅助方法 ------ /
+
+    /**
+     * 字符串替换，只替换一次
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param string $needle 要替换的字符串
+     * @param string $replace 替换成的字符串
+     * @param string $haystack 被替换的字符串
+     * @return string
+     * @lasttime: 2023/2/14 4:09 PM
+     */
+    private static function str_replace_once(string $needle, string $replace, string $haystack): string
+    {
+        $pos = strpos($haystack, $needle);
+        if ($pos === false) {
+            return $haystack;
+        }
+        return substr_replace($haystack, $replace, $pos, strlen($needle));
     }
 }
