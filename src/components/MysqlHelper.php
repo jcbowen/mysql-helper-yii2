@@ -28,7 +28,13 @@ class MysqlHelper
      */
     public static function getDBName(?string $dsn = ''): string
     {
-        $dsn      = $dsn ?: Yii::$app->db->dsn;
+        static $dbNames = [];
+
+        $dsn = $dsn ?: Yii::$app->db->dsn;
+        if (empty($dsn)) return '';
+
+        if (!empty($dbNames[$dsn])) return $dbNames[$dsn];
+
         $dsnParam = explode(';', $dsn);
         $items    = [];
         foreach ($dsnParam as $item) {
@@ -39,7 +45,25 @@ class MysqlHelper
             return 'dbname' == $key;
         }, ARRAY_FILTER_USE_KEY);
 
-        return array_values($data)[0];
+        $dbNames[$dsn] = array_values($data)[0];
+        return $dbNames[$dsn];
+    }
+
+    /**
+     * 获取所有表名
+     *
+     * @author Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @return array
+     * @throws Exception
+     * @lasttime: 2023/2/20 3:02 PM
+     */
+    public static function getAllTables(): array
+    {
+        $sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '" . self::getDBName() . "' AND table_type='base table'";
+        $res = Yii::$app->db->createCommand($sql)->queryAll();
+        return ArrayHelper::getColumn($res, 'TABLE_NAME');
     }
 
     /**
