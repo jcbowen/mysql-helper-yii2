@@ -55,15 +55,12 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @return array
-     * @throws Exception
+     * @return string[] all table names in the database.
      * @lasttime: 2023/2/20 3:02 PM
      */
     public static function getAllTables(): array
     {
-        $sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '" . self::getDBName() . "' AND table_type='base table'";
-        $res = Yii::$app->db->createCommand($sql)->queryAll();
-        return ArrayHelper::getColumn($res, 'TABLE_NAME');
+        return Yii::$app->db->schema->getTableNames();
     }
 
     /**
