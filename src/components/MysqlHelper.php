@@ -398,7 +398,7 @@ class MysqlHelper
             }
             if ($strict && !empty($diff['indexes']['greater'])) {
                 foreach ($diff['indexes']['greater'] as $indexName) {
-                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DROP `$indexName`";
+                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DROP INDEX `$indexName`";
                 }
             }
         }
