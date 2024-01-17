@@ -187,11 +187,11 @@ class MysqlHelper
         $schema['tableName'] = self::tableName($schema['tableName']);
 
         $sql = "CREATE TABLE IF NOT EXISTS `{$schema['tableName']}` (\n";
-        foreach ($schema['fields'] as $value) {
+        foreach ((array)$schema['fields'] as $value) {
             $piece = self::buildFieldSql($value);
             $sql   .= "`{$value['name']}` $piece,\n";
         }
-        foreach ($schema['indexes'] as $value) {
+        foreach ((array)$schema['indexes'] as $value) {
             $fields = implode('`,`', $value['fields']);
             if ('index' == $value['type']) {
                 $sql .= "KEY `{$value['name']}` (`$fields`),\n";
