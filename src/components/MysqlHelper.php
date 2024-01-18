@@ -267,8 +267,8 @@ class MysqlHelper
         }
         if (!empty($diffs)) $ret['fields']['diff'] = array_values($diffs);
 
-        $indexes1 = is_array($table1['indexes']) ? array_keys($table1['indexes']) : [];
-        $indexes2 = is_array($table2['indexes']) ? array_keys($table2['indexes']) : [];
+        $indexes1 = (isset($table1['indexes']) && is_array($table1['indexes'])) ? array_keys($table1['indexes']) : [];
+        $indexes2 = (isset($table2['indexes']) && is_array($table2['indexes'])) ? array_keys($table2['indexes']) : [];
 
         $diffs = array_diff($indexes1, $indexes2);
         if (!empty($diffs)) $ret['indexes']['greater'] = array_values($diffs);
