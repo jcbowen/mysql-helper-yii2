@@ -85,7 +85,7 @@ class MysqlHelper
         }
 
         // 判断表名是否包含表前缀
-        if (strpos($tableName, $dbPrefix) !== false) {
+        if (empty($dbPrefix) || strpos($tableName, $dbPrefix) !== false) {
             return $tableName;
         } else {
             // 判断是否通过Yii的方法转化表名
@@ -106,12 +106,18 @@ class MysqlHelper
      * @param string $tableName 表名
      * @param bool $getDefault 是否获取字段默认值
      * @param bool $getComment 是否获取字段注释
+     * @param array $options 其他选项
+     *              - resetTableIncrement 是否重置表自增量
      * @return array
      * @throws Exception
      * @lasttime: 2022/4/1 11:44 PM
      */
-    public static function getTableSchema(string $tableName = '', bool $getDefault = true, bool $getComment = true): array
+    public static function getTableSchema(string $tableName = '', bool $getDefault = true, bool $getComment = true, array $options = []): array
     {
+        $options = ArrayHelper::merge([
+            'resetTableIncrement' => true, // 是否重置表自增量
+        ], $options);
+
         $tableName = self::tableName($tableName);
         $result    = Yii::$app->db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
         if (empty($result)) return [];
@@ -120,7 +126,12 @@ class MysqlHelper
         $ret['charset']   = $result['Collation'];
         $ret['engine']    = $result['Engine'];
         $ret['increment'] = $result['Auto_increment'];
-        $result           = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
+
+        // 重置表自增为1
+        if ($options['resetTableIncrement'] && !empty($ret['increment']))
+            $ret['increment'] = 1;
+
+        $result = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
         foreach ($result as $value) {
             $temp           = [];
             $type           = explode(' ', $value['Type'], 2);
