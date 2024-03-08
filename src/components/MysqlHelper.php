@@ -115,7 +115,7 @@ class MysqlHelper
     public static function getTableSchema(string $tableName = '', bool $getDefault = true, bool $getComment = true, array $options = []): array
     {
         $options = ArrayHelper::merge([
-            'resetTableIncrement' => true, // 是否重置表自增量
+            'resetTableIncrement' => false, // 是否重置表自增量
         ], $options);
 
         $tableName = self::tableName($tableName);
