@@ -24,6 +24,11 @@ class MakeController extends Controller
     // ----- 可配置部分 ----- /
 
     /**
+     * @var bool 是否过滤没有数据模型的表(生成基准文件时)
+     */
+    public $filterNoModelTable = false;
+
+    /**
      * @var array 不跟踪的表名
      */
     public $ignoreTables = [
@@ -114,9 +119,8 @@ class MakeController extends Controller
      * 生成数据库基准文件及insert文件
      *
      * @author Bowen
-     * @email 3308725087@qq.com
+     * @email bowen@jiuchet.com
      *
-     * @return bool|int
      * @lasttime: 2023/1/29 2:28 PM
      */
     public function actionDb()
@@ -130,8 +134,15 @@ class MakeController extends Controller
 
         $this->stdout('开始执行数据表基准文件生成' . PHP_EOL, Console::FG_BLUE);
 
+        // 过滤没有数据模型的表
+        $filterNoModelTable = array_filter($this->tables_db, function ($v) {
+            return in_array($v, $this->tables_model);
+        });
+
+        $tables = $this->filterNoModelTable ? $filterNoModelTable : $this->tables_db;
+
         $dbSchema = [];
-        foreach ($this->tables_db as $table) {
+        foreach ($tables as $table) {
             $this->stdout('正在获取【' . $table . '】表结构' . PHP_EOL);
             try {
                 $dbSchema[$table] = MysqlHelper::getTableSchema($table, true, true, [
@@ -187,7 +198,7 @@ class MakeController extends Controller
             $this->stdout('没有需要生成的insert基准表数据' . PHP_EOL, Console::FG_YELLOW, Console::UNDERLINE);
         }
 
-        return $this->stdout('执行完毕' . PHP_EOL, Console::FG_BLUE);
+        $this->stdout('执行完毕' . PHP_EOL, Console::FG_BLUE);
     }
 
     /**
@@ -203,87 +214,89 @@ class MakeController extends Controller
         $tables    = $this->tables_db;
         $addTables = $tables;
         $delTables = [];
-        if (file_exists($this->dbSchemaFile)) {
-            set_time_limit(0);
+        if (!file_exists($this->dbSchemaFile)) {
+            $this->stdout('数据库基准文件不存在，不做检查' . PHP_EOL, Console::FG_YELLOW);
+            return;
+        }
+        set_time_limit(0);
 
-            $this->stdout('开始获取数据库基准文件...' . PHP_EOL);
-            $schemaFileData = file_get_contents($this->dbSchemaFile);
-            $schemaFileData = Util::unserializer($schemaFileData);
+        $this->stdout('开始获取数据库基准文件...' . PHP_EOL);
+        $schemaFileData = file_get_contents($this->dbSchemaFile);
+        $schemaFileData = Util::unserializer($schemaFileData);
 
-            if (!empty($schemaFileData)) {
-                $this->stdout('开始与基准数据对比...' . PHP_EOL);
-                $fixSql = [];
-                foreach ($schemaFileData as $table => $data) {
-                    // 需要添加的表
-                    $addTables = array_filter($addTables, function ($v) use ($table) {
-                        return $v != $table;
-                    });
+        if (!empty($schemaFileData)) {
+            $this->stdout('基准文件不存在，不进行对比' . PHP_EOL, Console::FG_YELLOW);
+            return;
+        }
 
-                    // 需要删除的表
-                    if (!empty($tables) && !in_array($table, $tables))
-                        $delTables[] = $table;
+        $this->stdout('开始与基准数据对比...' . PHP_EOL);
+        $fixSql = [];
+        foreach ($schemaFileData as $table => $data) {
+            // 需要添加的表
+            $addTables = array_filter($addTables, function ($v) use ($table) {
+                return $v != $table;
+            });
 
-                    $this->stdout("对比【{$table}】结果：");
-                    try {
-                        $loc_info = MysqlHelper::getTableSchema($table, true, true, [
-                            'resetTableIncrement' => true
-                        ]);
-                    } catch (Exception $e) {
-                        $this->stdout("获取 $table 表结构失败" . PHP_EOL, Console::FG_RED);
-                        $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
-                        $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
-                        continue;
-                    }
-                    // 以数据表结构为准，对比基准数据结构
-                    $allSql = MysqlHelper::makeFixSql($data, $loc_info, true);
-                    if (!empty($allSql)) {
-                        $fixSql[$table] = $allSql;
-                        $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
-                    } else {
-                        $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
-                    }
-                }
-                // 统计没有生成model的表
-                $noModelTables = array_filter($this->tables_db, function ($v) {
-                    return !in_array($v, $this->tables_model);
-                });
-                $count         = count($fixSql); // 需要修复的表
-                $countAdd      = count($addTables); // 新增表
-                $countDel      = count($delTables); // 删除表
-                $countNoModel  = count($noModelTables); // 没有生成model的表
-                $this->stdout('对比完成，共计' . ($count + $countAdd + $countDel) . '张表需要处理' . PHP_EOL, Console::FG_BLUE);
-                if (!empty($count)) {
-                    $this->stdout('修复sql语句如下：' . PHP_EOL);
-                    foreach ($fixSql as $table => $sql) {
-                        $this->stdout("【{$table}】" . PHP_EOL);
-                        $this->stdout(implode(PHP_EOL, $sql) . PHP_EOL);
-                    }
-                } else {
-                    $this->stdout('Done：没有需要修复的数据' . PHP_EOL, Console::FG_GREEN);
-                }
-                if (!empty($countAdd)) {
-                    $this->stdout("新增了{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
-                    $this->stdout(implode(PHP_EOL, $addTables) . PHP_EOL);
-                } else {
-                    $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
-                }
-                if (!empty($countDel)) {
-                    $this->stdout("删除了{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
-                    $this->stdout(implode(PHP_EOL, $delTables) . PHP_EOL);
-                } else {
-                    $this->stdout('Done：没有删除表' . PHP_EOL, Console::FG_GREEN);
-                }
-                if (!empty($countNoModel)) {
-                    $this->stdout("有{$countNoModel}张表没有生成model：" . PHP_EOL, Console::FG_BLUE);
-                    $this->stdout(implode(PHP_EOL, $noModelTables) . PHP_EOL);
-                } else {
-                    $this->stdout('Done：所有表都生成了model' . PHP_EOL, Console::FG_GREEN);
-                }
+            // 需要删除的表
+            if (!empty($tables) && !in_array($table, $tables))
+                $delTables[] = $table;
+
+            $this->stdout("对比【{$table}】结果：");
+            try {
+                $loc_info = MysqlHelper::getTableSchema($table, true, true, [
+                    'resetTableIncrement' => true
+                ]);
+            } catch (Exception $e) {
+                $this->stdout("获取 $table 表结构失败" . PHP_EOL, Console::FG_RED);
+                $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
+                $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
+                continue;
+            }
+            // 以数据表结构为准，对比基准数据结构
+            $allSql = MysqlHelper::makeFixSql($data, $loc_info, true);
+            if (!empty($allSql)) {
+                $fixSql[$table] = $allSql;
+                $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
             } else {
-                $this->stdout('没有数据库基准数据，不做修复' . PHP_EOL, Console::FG_YELLOW);
+                $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
+            }
+        }
+        // 统计没有生成model的表
+        $noModelTables = array_filter($this->tables_db, function ($v) {
+            return !in_array($v, $this->tables_model);
+        });
+        $count         = count($fixSql); // 需要修复的表
+        $countAdd      = count($addTables); // 新增表
+        $countDel      = count($delTables); // 删除表
+        $countNoModel  = count($noModelTables); // 没有生成model的表
+        $this->stdout('对比完成，共计' . ($count + $countAdd + $countDel) . '张表需要处理' . PHP_EOL, Console::FG_BLUE);
+        if (!empty($count)) {
+            $this->stdout('修复sql语句如下：' . PHP_EOL);
+            foreach ($fixSql as $table => $sql) {
+                $this->stdout("【{$table}】" . PHP_EOL);
+                $this->stdout(implode(PHP_EOL, $sql) . PHP_EOL);
             }
         } else {
-            $this->stdout('数据库基准文件不存在，不做检查' . PHP_EOL, Console::FG_YELLOW);
+            $this->stdout('Done：没有需要修复的数据' . PHP_EOL, Console::FG_GREEN);
         }
+        if (!empty($countAdd)) {
+            $this->stdout("新增了{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
+            $this->stdout(implode(PHP_EOL, $addTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($countDel)) {
+            $this->stdout("删除了{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
+            $this->stdout(implode(PHP_EOL, $delTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：没有删除表' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($countNoModel)) {
+            $this->stdout("有{$countNoModel}张表没有生成model：" . PHP_EOL, Console::FG_BLUE);
+            $this->stdout(implode(PHP_EOL, $noModelTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：所有表都生成了model' . PHP_EOL, Console::FG_GREEN);
+        }
+
     }
 }
