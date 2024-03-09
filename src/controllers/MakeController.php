@@ -224,7 +224,7 @@ class MakeController extends Controller
         $schemaFileData = file_get_contents($this->dbSchemaFile);
         $schemaFileData = Util::unserializer($schemaFileData);
 
-        if (!empty($schemaFileData)) {
+        if (empty($schemaFileData)) {
             $this->stdout('基准文件不存在，不进行对比' . PHP_EOL, Console::FG_YELLOW);
             return;
         }
