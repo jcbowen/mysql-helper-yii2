@@ -10,6 +10,15 @@ use yii\helpers\Console;
 use yii\helpers\FileHelper;
 use Jcbowen\MysqlHelperYii2\components\MysqlHelper;
 
+/**
+ * Class MakeController
+ * 用于生成或检测数据表是否发生变化
+ *
+ * @author Bowen
+ * @email bowen@jiuchet.com
+ * @lasttime: 2024/3/9 10:11 AM
+ * @package Jcbowen\MysqlHelperYii2\controllers
+ */
 class MakeController extends Controller
 {
     // ----- 可配置部分 ----- /
