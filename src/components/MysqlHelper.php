@@ -505,19 +505,25 @@ class MysqlHelper
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名
-     * @param array $opt 是否清空表
+     * @param array $options 其他选项
      * - bool $truncate 是否清空表
      * - bool $ignore 是否使用INSERT IGNORE INTO
      * - int $batchSize 每次查询的条数
+     * - callable|null $getInsertDataQuery 获取查询语句
      * @param Connection|null $db 数据库连接
      * @return array|false
      * @throws Exception
      * @lasttime: 2022/12/14 13:53
      */
-    public static function tableInsertSql(string $tableName, array $opt = [], Connection $db = null)
+    public static function tableInsertSql(string $tableName, array $options = [], Connection $db = null)
     {
         // 合并默认选项
-        $opt = ArrayHelper::merge(['truncate' => false, 'ignore' => false, 'batchSize' => 100], $opt);
+        $options = ArrayHelper::merge([
+            'truncate'           => false,
+            'ignore'             => false,
+            'batchSize'          => 100,
+            'getInsertDataQuery' => null
+        ], $options);
 
         $tableName = self::tableName($tableName);
 
@@ -534,8 +540,13 @@ class MysqlHelper
 
         // 批处理查询
         $query = (new Query())->from($tableName);
+
+        // 将查询语句通过回调输出给选项配置的回调
+        if (!empty($options['getInsertDataQuery']) && is_callable($options['getInsertDataQuery']))
+            $query = call_user_func($options['getInsertDataQuery'], $query);
+
         Yii::$app->db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
-        foreach ($query->each($opt['batchSize'], $db) as $row) {
+        foreach ($query->each($options['batchSize'], $db) as $row) {
             $data[]   = $row;
             $valueTmp .= '(';
             foreach ($row as $v) {
@@ -559,9 +570,9 @@ class MysqlHelper
             return false;
 
         $valueTmp = rtrim($valueTmp, ",\n");
-        if ($opt['truncate']) $insertSql .= "TRUNCATE TABLE $tableName;\n";
+        if ($options['truncate']) $insertSql .= "TRUNCATE TABLE $tableName;\n";
         $insertSql .= "INSERT ";
-        if ($opt['ignore']) $insertSql .= "IGNORE ";
+        if ($options['ignore']) $insertSql .= "IGNORE ";
         $insertSql .= "INTO $tableName (" . implode(',', $filedTmp) . ") VALUES \n$valueTmp;\n";
 
         return [
