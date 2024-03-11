@@ -134,11 +134,12 @@ class MakeController extends Controller
 
         $this->stdout('开始执行数据表基准文件生成' . PHP_EOL, Console::FG_BLUE);
 
-        // 过滤没有数据模型的表
+        // 过滤掉没有数据模型的表
         $filterNoModelTable = array_filter($this->tables_db, function ($v) {
             return in_array($v, $this->tables_model);
         });
 
+        // 根据传入参数决定是否只遍历处理有模型的表
         $tables = $this->filterNoModelTable ? $filterNoModelTable : $this->tables_db;
 
         $dbSchema = [];
@@ -171,20 +172,20 @@ class MakeController extends Controller
         }
 
         $dbInsertSql = [];
-        foreach ($this->insertTables as $table => $option) {
-            $this->stdout('正在获取【' . $table . '】表insert语句' . PHP_EOL);
+        foreach ($this->insertTables as $insertTable => $option) {
+            $this->stdout('正在获取【' . $insertTable . '】表insert语句' . PHP_EOL);
             try {
-                $data = MysqlHelper::tableInsertSql($table, $option);
+                $data = MysqlHelper::tableInsertSql($insertTable, $option);
             } catch (Exception $e) {
                 $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
                 continue;
             }
             if (empty($data)) {
-                $this->stdout('获取【' . $table . '】表insert语句失败' . PHP_EOL, Console::FG_RED);
+                $this->stdout('获取【' . $insertTable . '】表insert语句失败' . PHP_EOL, Console::FG_RED);
                 continue;
             }
-            $dbInsertSql[$table] = $data['sql'];
-            $this->stdout('获取【' . $table . '】表insert语句成功' . PHP_EOL);
+            $dbInsertSql[$insertTable] = $data['sql'];
+            $this->stdout('获取【' . $insertTable . '】表insert语句成功' . PHP_EOL);
         }
         if (!empty($dbInsertSql)) {
             $this->stdout('所有insert语句获取成功，正在生成基准文件' . PHP_EOL, Console::FG_BLUE);
