@@ -37,11 +37,23 @@ class MakeController extends Controller
 
     /**
      * @var array 不跟踪的表名
+     *
+     * $insertTables = [
+     *      'router' => [
+     *          'truncate' => true, // 清空后插入
+     *      ],
+     *      'vip'    => [
+     *          'ignore'             => true, // 存在就不插入
+     *          // 获取“查询需要插入数据的query实例”
+     *          'getInsertDataQuery' => function ($query) {
+     *              return $query;
+     *          }
+     *      ],
+     *  ]
+     *
+     *
      */
-    public $insertTables = [
-        // 'router' => ['truncate' => true], // 清空后插入
-        // 'vip'    => ['ignore' => true], // 存在就不插入
-    ];
+    public $insertTables = [];
 
     /**
      * @var string 数据库基准文件所在目录
