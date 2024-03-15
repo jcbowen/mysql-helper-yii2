@@ -2,6 +2,7 @@
 
 namespace Jcbowen\MysqlHelperYii2\components;
 
+use Jcbowen\JcbaseYii2\components\Util;
 use PDO;
 use Yii;
 use yii\db\Connection;
@@ -23,14 +24,15 @@ class MysqlHelper
      * @email bowen@jiuchet.com
      *
      * @param string|null $dsn 数据库连接DSN
+     * @param string $db 数据库连接别名
      * @return string
      * @lasttime: 2022/4/2 10:17 AM
      */
-    public static function getDBName(?string $dsn = ''): string
+    public static function getDBName(?string $dsn = '', string $db = 'db'): string
     {
         static $dbNames = [];
 
-        $dsn = $dsn ?: Yii::$app->db->dsn;
+        $dsn = $dsn ?: Yii::$app->$db->dsn;
         if (empty($dsn)) return '';
 
         if (!empty($dbNames[$dsn])) return $dbNames[$dsn];
@@ -55,12 +57,13 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
+     * @param string $db 数据库连接别名
      * @return string[] all table names in the database.
      * @lasttime: 2023/2/20 3:02 PM
      */
-    public static function getAllTables(): array
+    public static function getAllTables(string $db = 'db'): array
     {
-        return Yii::$app->db->schema->getTableNames();
+        return Yii::$app->$db->schema->getTableNames();
     }
 
     /**
@@ -69,31 +72,30 @@ class MysqlHelper
      * @author Bowen
      * @email bowen@jiuchet.com
      *
-     * @param string $tableName 表名称
+     * @param string $tableName 表名称(含前缀)
+     * @param string $db 数据库连接别名
      * @return string
      * @lasttime: 2022/4/2 1:05 PM
      */
-    public static function tableName(string $tableName): string
+    public static function tableName(string $tableName, string $db = 'db'): string
     {
         if (empty($tableName)) return '';
 
-        $dbPrefix = Yii::$app->db->tablePrefix;
+        // 判断是否需要通过Yii2的方法转化表名
+        if (strpos($tableName, '{{') !== false)
+            $tableName = trim(Yii::$app->$db->quoteSql($tableName), '`');
 
-        // 判断表名是否包含jc_表前缀
-        if (substr_compare($tableName, self::$defaultPrefix, 0, strlen(self::$defaultPrefix)) === 0) {
+        $dbPrefix = Yii::$app->$db->tablePrefix;
+
+        // 当默认表前缀以及系统配置的表前缀都不为空且不同时，需要将默认表前缀替换成配置的表前缀
+        if (!empty(self::$defaultPrefix) && !empty($dbPrefix) && self::$defaultPrefix != $dbPrefix && Util::startsWith($tableName, self::$defaultPrefix))
             $tableName = self::str_replace_once(self::$defaultPrefix, $dbPrefix, $tableName);
-        }
 
         // 判断表名是否包含表前缀
-        if (empty($dbPrefix) || strpos($tableName, $dbPrefix) !== false) {
+        if (empty($dbPrefix) || Util::startsWith($tableName, $dbPrefix)) {
             return $tableName;
         } else {
-            // 判断是否通过Yii的方法转化表名
-            if (strpos($tableName, '{{') !== false) {
-                return trim(Yii::$app->db->quoteSql($tableName), '`');
-            } else {
-                return $dbPrefix . $tableName;
-            }
+            return $dbPrefix . $tableName;
         }
     }
 
@@ -116,10 +118,12 @@ class MysqlHelper
     {
         $options = ArrayHelper::merge([
             'resetTableIncrement' => false, // 是否重置表自增量
+            'db'                  => 'db' // 数据库连接别名
         ], $options);
+        $db      = $options['db'] ?: 'db';
 
         $tableName = self::tableName($tableName);
-        $result    = Yii::$app->db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
+        $result    = Yii::$app->$db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
         if (empty($result)) return [];
         $ret              = [];
         $ret['tableName'] = $result['Name'];
@@ -131,7 +135,7 @@ class MysqlHelper
         if ($options['resetTableIncrement'] && !empty($ret['increment']))
             $ret['increment'] = 1;
 
-        $result = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
+        $result = Yii::$app->$db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
         foreach ($result as $value) {
             $temp           = [];
             $type           = explode(' ', $value['Type'], 2);
@@ -146,7 +150,7 @@ class MysqlHelper
             if ($getComment) $temp['comment'] = $value['Comment'] ?: '';
             $ret['fields'][$value['Field']] = $temp;
         }
-        $result = Yii::$app->db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
+        $result = Yii::$app->$db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
         foreach ($result as $value) {
             $ret['indexes'][$value['Key_name']]['name']     = $value['Key_name'];
             $ret['indexes'][$value['Key_name']]['type']     = ('PRIMARY' == $value['Key_name']) ? 'primary' : (0 == $value['Non_unique'] ? 'unique' : 'index');
@@ -163,14 +167,15 @@ class MysqlHelper
      * @email bowen@jiuchet.com
      *
      * @param string $dbname 数据库名称
+     * @param string $db 数据库连接别名
      * @return string
      * @throws Exception
      * @lasttime: 2022/4/2 11:33 AM
      */
-    public static function getTableSerialize(string $dbname = ''): string
+    public static function getTableSerialize(string $dbname = '', string $db = 'db'): string
     {
         $dbname = $dbname ?: self::getDBName();
-        $tables = Yii::$app->db->createCommand("SHOW TABLES")->queryAll();
+        $tables = Yii::$app->$db->createCommand("SHOW TABLES")->queryAll();
         if (empty($tables)) return '';
         $structs = [];
         foreach ($tables as $value) {
@@ -485,13 +490,13 @@ class MysqlHelper
      * @throws Exception
      * @lasttime: 2022/4/2 10:37 PM
      */
-    public static function tableSchemas(string $tableName): string
+    public static function tableSchemas(string $tableName, string $db = 'db'): string
     {
         $tableName = self::tableName($tableName);
 
         $dump = "DROP TABLE IF EXISTS $tableName;\n";
         $sql  = "SHOW CREATE TABLE $tableName";
-        $row  = Yii::$app->db->createCommand($sql)->queryOne();
+        $row  = Yii::$app->$db->createCommand($sql)->queryOne();
         $dump .= $row['Create Table'];
         $dump .= ";\n\n";
 
@@ -510,13 +515,16 @@ class MysqlHelper
      * - bool $ignore 是否使用INSERT IGNORE INTO
      * - int $batchSize 每次查询的条数
      * - callable|null $getInsertDataQuery 获取查询语句
-     * @param Connection|null $db 数据库连接
+     * @param Connection|string|null $db 数据库连接
      * @return array|false
      * @throws Exception
      * @lasttime: 2022/12/14 13:53
      */
-    public static function tableInsertSql(string $tableName, array $options = [], Connection $db = null)
+    public static function tableInsertSql(string $tableName, array $options = [], $db = null)
     {
+        /** @var Connection $db */
+        $db = ($db instanceof Connection) ? $db : (is_string($db) ? Yii::$app->$db : Yii::$app->db);
+
         // 合并默认选项
         $options = ArrayHelper::merge([
             'truncate'           => false,
@@ -533,7 +541,7 @@ class MysqlHelper
         $valueTmp  = '';
 
         // 获取字段名
-        $columns = Yii::$app->db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
+        $columns = $db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
         foreach ($columns as $column) $filedTmp[] = "`{$column['Field']}`";
 
         if (empty($filedTmp)) return false;
@@ -545,7 +553,7 @@ class MysqlHelper
         if (!empty($options['getInsertDataQuery']) && is_callable($options['getInsertDataQuery']))
             $query = call_user_func($options['getInsertDataQuery'], $query);
 
-        Yii::$app->db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+        $db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
         foreach ($query->each($options['batchSize'], $db) as $row) {
             $data[]   = $row;
             $valueTmp .= '(';
@@ -564,7 +572,7 @@ class MysqlHelper
             $valueTmp = rtrim($valueTmp, ',');
             $valueTmp .= "),\n";
         }
-        Yii::$app->db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
+        $db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
 
         if (empty($data))
             return false;
