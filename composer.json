@@ -24,7 +24,7 @@
   "require": {
     "php": ">=7.2.0 <8.0.0",
     "yiisoft/yii2": "^2.0.11",
-    "jcbowen/jcbase-yii2": "^0.x-dev || ^0.25.2"
+    "jcbowen/jcbase-yii2": "^0.x-dev || >=0.25.2"
   },
   "require-dev": {
     "ext-pdo": "*"
