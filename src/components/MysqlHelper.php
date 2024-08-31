@@ -558,16 +558,16 @@ class MysqlHelper
             $data[]   = $row;
             $valueTmp .= '(';
             foreach ($row as $v) {
-                $value    = str_replace(array('\\', "\0", "\n", "\r", "'", '"', "\x1a"), array(
-                    '\\\\',
-                    '\\0',
-                    '\\n',
-                    '\\r',
-                    "\\'",
-                    '\\"',
-                    '\\Z'
-                ), $v);
-                $valueTmp .= "'" . $value . "',";
+                if ($v === null) {
+                    $valueTmp .= "NULL,";
+                } else {
+                    $value    = str_replace(
+                        array('\\', "\0", "\n", "\r", "'", '"', "\x1a"),
+                        array('\\\\', '\\0', '\\n', '\\r', "\\'", '\\"', '\\Z'),
+                        $v
+                    );
+                    $valueTmp .= "'" . $value . "',";
+                }
             }
             $valueTmp = rtrim($valueTmp, ',');
             $valueTmp .= "),\n";
