@@ -83,6 +83,13 @@ class MakeController extends ConsoleController
     // models中的所有表名
     protected $tables_model = [];
 
+    // ----- 专属命令行options ----- /
+
+    /** @var bool 检查完毕，如果存在差异，是否生成基准文件 */
+    public $generate = '';
+    /** @var bool 如果基准文件为空，是否继续检查 */
+    public $continuesIfEmpty = '';
+
     /**
      * {@inheritdoc}
      */
@@ -125,6 +132,163 @@ class MakeController extends ConsoleController
 
         $this->dbSchemaFile = $this->dir . '/db_schema.txt';
         $this->dbInsertFile = $this->dir . '/db_insert.sql';
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function options($actionID): array
+    {
+        return [
+            'generate',
+            'continues-if-empty',
+            'help'
+        ];
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function optionAliases(): array
+    {
+        return [
+            'g' => 'generate',
+            'c' => 'continues-if-empty',
+            'h' => 'help',
+        ];
+    }
+
+    /**
+     * 检查数据表结构是否发生变化
+     *
+     * @author  Bowen
+     * @email   3308725087@qq.com
+     *
+     * @lasttime: 2023/1/29 2:28 PM
+     */
+    public function actionCheck()
+    {
+        $tables    = $this->tables_db;
+        $addTables = $tables;
+        $delTables = [];
+
+        set_time_limit(0);
+
+        if (file_exists($this->dbSchemaFile)) {
+            $this->stdout('开始获取数据库基准文件...' . PHP_EOL);
+            $schemaFileData = @file_get_contents($this->dbSchemaFile);
+            $schemaFileData = Util::unserializer($schemaFileData);
+        }
+
+        if (empty($schemaFileData) && empty($this->continuesIfEmpty)) {
+            $this->stdout('本地数据表基准文件不存在，是否继续？[Y/N]' . PHP_EOL);
+            $this->stdout("  输入[Y]将继续检查，输入任意其他字符将退出" . PHP_EOL, Console::FG_YELLOW);
+            $answer           = strtolower(trim(fgets(STDIN)));
+            $continuesIfEmpty = $answer === 'y';
+            if (!$continuesIfEmpty)
+                $this->stdout('退出差异检查' . PHP_EOL);
+        } else {
+            $continuesIfEmpty = strtolower($this->continuesIfEmpty) === 'y';
+        }
+        if (empty($schemaFileData) && !$continuesIfEmpty)
+            return;
+
+        $fixSql = [];
+        $locDbs = []; // 缓存一份儿在下面遍历时获取过的表结构
+        // 根据基准文件进行数据对比
+        if (!empty($schemaFileData)) {
+            $this->stdout('开始与基准数据对比...' . PHP_EOL);
+            foreach ($schemaFileData as $table => $data) {
+                // 需要添加的表
+                $addTables = array_filter($addTables, function ($v) use ($table) {
+                    return $v != $table;
+                });
+
+                // 需要删除的表
+                if (!empty($tables) && !in_array($table, $tables))
+                    $delTables[] = $table;
+
+                $this->stdout("对比【{$table}】结果：");
+                try {
+                    $locDbs[$table] = MysqlHelper::getTableSchema($table, true, true, [
+                        'resetTableIncrement' => true
+                    ]);
+                } catch (Exception $e) {
+                    $this->stdout("获取 $table 表结构失败" . PHP_EOL, Console::FG_RED);
+                    $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
+                    $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
+                    continue;
+                }
+                // 以数据表结构为准，对比基准数据结构
+                $allSql = MysqlHelper::makeFixSql($data, $locDbs[$table], true);
+                if (!empty($allSql)) {
+                    $fixSql[$table] = $allSql;
+                    $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
+                } else {
+                    $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
+                }
+            }
+        } else {
+            $this->stdout('基准文件不存在，跳过对比' . PHP_EOL, Console::FG_YELLOW);
+        }
+
+        // ----- 统计对比数据 ----- /
+        $noModelTables = array_filter($this->tables_db, function ($v) {
+            return !in_array($v, $this->tables_model);
+        });
+        $count         = count($fixSql); // 需要修复的表
+        $countAdd      = count($addTables); // 新增表
+        $countDel      = count($delTables); // 删除表
+        $countNoModel  = count($noModelTables); // 没有生成model的表
+        $this->stdout('对比完成，共计' . ($count + $countAdd + $countDel) . '张表需要处理' . PHP_EOL, Console::FG_BLUE);
+
+        if (!empty($countNoModel)) {
+            $this->stdout("有{$countNoModel}张表没有生成model：" . PHP_EOL, Console::FG_BLUE);
+            $this->stdout(implode(PHP_EOL, $noModelTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：所有表都生成了model' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($countDel)) {
+            $this->stdout("删除了{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
+            $this->stdout(implode(PHP_EOL, $delTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：没有删除表' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($countAdd)) {
+            $this->stdout("新增了{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
+            $this->stdout(implode(PHP_EOL, $addTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($count)) {
+            $this->stdout('修复sql语句如下：' . PHP_EOL);
+            foreach ($fixSql as $table => $sql) {
+                $this->stdout("【{$table}】" . PHP_EOL);
+                $this->stdout(implode(PHP_EOL, $sql) . PHP_EOL);
+            }
+        } else {
+            $this->stdout('Done：没有需要修复的数据' . PHP_EOL, Console::FG_GREEN);
+        }
+
+        // 没有差异就结束
+        if (empty($count) && empty($countAdd) && empty($countDel))
+            return;
+
+        $this->stdout(PHP_EOL);
+
+        if (empty($this->generate)) {
+            $this->stdout('存在差异，是否生成新的基准文件？[Y/N]' . PHP_EOL);
+            $this->stdout("  输入[Y]将生成新的基准文件，输入任意其他字符将退出" . PHP_EOL, Console::FG_YELLOW);
+            $answer = strtolower(trim(fgets(STDIN)));
+            $make   = $answer === 'y';
+            if (!$make)
+                $this->stdout('退出基准文件生成' . PHP_EOL);
+        } else {
+            $make = strtolower($this->generate) === 'y';
+        }
+
+        if ($make)
+            $this->actionDb($locDbs);
     }
 
     /**
@@ -219,149 +383,5 @@ class MakeController extends ConsoleController
         }
 
         $this->stdout('执行完毕' . PHP_EOL, Console::FG_BLUE);
-    }
-
-    /**
-     * 检查数据库结构是否发生变化
-     * 接收命令行参数
-     *  - generate 是否生成基准文件，Y or any
-     *  - continues-if-empty 无基准文件是否继续执行，Y or any
-     *
-     * @author  Bowen
-     * @email   3308725087@qq.com
-     *
-     * @lasttime: 2023/1/29 2:28 PM
-     */
-    public function actionCheck()
-    {
-        $tables    = $this->tables_db;
-        $addTables = $tables;
-        $delTables = [];
-
-        set_time_limit(0);
-
-        if (file_exists($this->dbSchemaFile)) {
-            $this->stdout('开始获取数据库基准文件...' . PHP_EOL);
-            $schemaFileData = @file_get_contents($this->dbSchemaFile);
-            $schemaFileData = Util::unserializer($schemaFileData);
-        }
-
-        if (empty($schemaFileData) && (empty($this->CommandLineParams['continues-if-empty']) || $this->CommandLineParams['continues-if-empty'] === true)) {
-            $this->stdout('本地数据表基准文件不存在，是否继续？[Y/N]' . PHP_EOL);
-            $this->stdout("  输入[Y]将继续检查，输入任意其他字符将退出" . PHP_EOL, Console::FG_YELLOW);
-            $answer = strtolower(trim(fgets(STDIN)));
-            echo PHP_EOL;
-            echo PHP_EOL;
-            echo PHP_EOL;
-            echo ":" . $answer;
-            echo PHP_EOL;
-            echo PHP_EOL;
-            echo PHP_EOL;
-
-            $continuesIfEmpty = $answer === 'y';
-            if (!$continuesIfEmpty)
-                $this->stdout('退出差异检查' . PHP_EOL);
-        } else {
-            $continuesIfEmpty = isset($this->CommandLineParams['continues-if-empty']) && strtolower($this->CommandLineParams['continues-if-empty']) === 'y';
-        }
-        if (empty($schemaFileData) && !$continuesIfEmpty)
-            return;
-
-        $fixSql = [];
-        $locDbs = []; // 缓存一份儿在下面遍历时获取过的表结构
-        // 根据基准文件进行数据对比
-        if (!empty($schemaFileData)) {
-            $this->stdout('开始与基准数据对比...' . PHP_EOL);
-            foreach ($schemaFileData as $table => $data) {
-                // 需要添加的表
-                $addTables = array_filter($addTables, function ($v) use ($table) {
-                    return $v != $table;
-                });
-
-                // 需要删除的表
-                if (!empty($tables) && !in_array($table, $tables))
-                    $delTables[] = $table;
-
-                $this->stdout("对比【{$table}】结果：");
-                try {
-                    $locDbs[$table] = MysqlHelper::getTableSchema($table, true, true, [
-                        'resetTableIncrement' => true
-                    ]);
-                } catch (Exception $e) {
-                    $this->stdout("获取 $table 表结构失败" . PHP_EOL, Console::FG_RED);
-                    $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
-                    $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
-                    continue;
-                }
-                // 以数据表结构为准，对比基准数据结构
-                $allSql = MysqlHelper::makeFixSql($data, $locDbs[$table], true);
-                if (!empty($allSql)) {
-                    $fixSql[$table] = $allSql;
-                    $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
-                } else {
-                    $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
-                }
-            }
-        } else {
-            $this->stdout('基准文件不存在，跳过对比' . PHP_EOL, Console::FG_YELLOW);
-        }
-
-        // ----- 统计对比数据 ----- /
-        $noModelTables = array_filter($this->tables_db, function ($v) {
-            return !in_array($v, $this->tables_model);
-        });
-        $count         = count($fixSql); // 需要修复的表
-        $countAdd      = count($addTables); // 新增表
-        $countDel      = count($delTables); // 删除表
-        $countNoModel  = count($noModelTables); // 没有生成model的表
-        $this->stdout('对比完成，共计' . ($count + $countAdd + $countDel) . '张表需要处理' . PHP_EOL, Console::FG_BLUE);
-
-        if (!empty($countNoModel)) {
-            $this->stdout("有{$countNoModel}张表没有生成model：" . PHP_EOL, Console::FG_BLUE);
-            $this->stdout(implode(PHP_EOL, $noModelTables) . PHP_EOL);
-        } else {
-            $this->stdout('Done：所有表都生成了model' . PHP_EOL, Console::FG_GREEN);
-        }
-        if (!empty($countDel)) {
-            $this->stdout("删除了{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
-            $this->stdout(implode(PHP_EOL, $delTables) . PHP_EOL);
-        } else {
-            $this->stdout('Done：没有删除表' . PHP_EOL, Console::FG_GREEN);
-        }
-        if (!empty($countAdd)) {
-            $this->stdout("新增了{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
-            $this->stdout(implode(PHP_EOL, $addTables) . PHP_EOL);
-        } else {
-            $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
-        }
-        if (!empty($count)) {
-            $this->stdout('修复sql语句如下：' . PHP_EOL);
-            foreach ($fixSql as $table => $sql) {
-                $this->stdout("【{$table}】" . PHP_EOL);
-                $this->stdout(implode(PHP_EOL, $sql) . PHP_EOL);
-            }
-        } else {
-            $this->stdout('Done：没有需要修复的数据' . PHP_EOL, Console::FG_GREEN);
-        }
-
-        // 没有差异就结束
-        if (empty($count) && empty($countAdd) && empty($countDel))
-            return;
-
-        $this->stdout(PHP_EOL);
-
-        if (empty($this->CommandLineParams['generate']) || $this->CommandLineParams['generate'] === true) {
-            $this->stdout('存在差异，是否生成新的基准文件？[Y/N]' . PHP_EOL);
-            $this->stdout("  输入[Y]将生成新的基准文件，输入任意其他字符将退出" . PHP_EOL, Console::FG_YELLOW);
-            $answer = strtolower(trim(fgets(STDIN)));
-            $make   = $answer === 'y';
-            if (!$make)
-                $this->stdout('退出基准文件生成' . PHP_EOL);
-        } else {
-            $make = isset($this->CommandLineParams['generate']) && strtolower($this->CommandLineParams['generate']) === 'y';
-        }
-
-        if ($make)
-            $this->actionDb($locDbs);
     }
 }
