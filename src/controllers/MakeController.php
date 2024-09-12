@@ -2,9 +2,9 @@
 
 namespace Jcbowen\MysqlHelperYii2\controllers;
 
+use Jcbowen\JcbaseYii2\base\ConsoleController;
 use Jcbowen\JcbaseYii2\components\Util;
 use Yii;
-use yii\console\Controller;
 use yii\db\Exception;
 use yii\helpers\Console;
 use yii\helpers\FileHelper;
@@ -14,12 +14,12 @@ use Jcbowen\MysqlHelperYii2\components\MysqlHelper;
  * Class MakeController
  * 用于生成或检测数据表是否发生变化
  *
- * @author Bowen
+ * @author  Bowen
  * @email bowen@jiuchet.com
  * @lasttime: 2024/3/9 10:11 AM
  * @package Jcbowen\MysqlHelperYii2\controllers
  */
-class MakeController extends Controller
+class MakeController extends ConsoleController
 {
     // ----- 可配置部分 ----- /
 
@@ -130,19 +130,22 @@ class MakeController extends Controller
     /**
      * 生成数据库基准文件及insert文件
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
+     *
+     * @param array $dbSchemaContext 上下文中获取过的表结构， [table_name=>table_schema]格式
      *
      * @lasttime: 2023/1/29 2:28 PM
      */
-    public function actionDb()
+    public function actionDb(array $dbSchemaContext = [])
     {
         // 删除原本的文件
         if (is_file($this->dbSchemaFile)) unlink($this->dbSchemaFile);
         if (is_file($this->dbInsertFile)) unlink($this->dbInsertFile);
 
-        // 取消响应超时
-        set_time_limit(0);
+        // 取消响应超时(有上下文，说明已经取消过了，不需要再执行)
+        if (empty($dbSchemaContext))
+            set_time_limit(0);
 
         $this->stdout('开始执行数据表基准文件生成' . PHP_EOL, Console::FG_BLUE);
 
@@ -156,20 +159,24 @@ class MakeController extends Controller
 
         $dbSchema = [];
         foreach ($tables as $table) {
-            $this->stdout('正在获取【' . $table . '】表结构' . PHP_EOL);
-            try {
-                $dbSchema[$table] = MysqlHelper::getTableSchema($table, true, true, [
-                    'resetTableIncrement' => true
-                ]);
-            } catch (Exception $e) {
-                $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
-                continue;
+            if (!empty($dbSchemaContext[$table])) {
+                $dbSchema[$table] = $dbSchemaContext[$table];
+            } else {
+                try {
+                    $this->stdout('获取【' . $table . '】表结构：');
+                    $dbSchema[$table] = MysqlHelper::getTableSchema($table, true, true, [
+                        'resetTableIncrement' => true
+                    ]);
+                } catch (Exception $e) {
+                    $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
+                    continue;
+                }
+                if (empty($dbSchema[$table])) {
+                    $this->stdout('失败' . PHP_EOL, Console::FG_RED);
+                    continue;
+                }
+                $this->stdout('成功' . PHP_EOL, Console::FG_GREEN);
             }
-            if (empty($dbSchema[$table])) {
-                $this->stdout('获取【' . $table . '】表结构失败' . PHP_EOL, Console::FG_RED);
-                continue;
-            }
-            $this->stdout('获取【' . $table . '】表结构成功' . PHP_EOL);
         }
         if (!empty($dbSchema)) {
             $this->stdout('所有表结构获取成功，正在生成基准文件' . PHP_EOL, Console::FG_BLUE);
@@ -185,7 +192,7 @@ class MakeController extends Controller
 
         $dbInsertSql = [];
         foreach ($this->insertTables as $insertTable => $option) {
-            $this->stdout('正在获取【' . $insertTable . '】表insert语句' . PHP_EOL);
+            $this->stdout('获取【' . $insertTable . '】表insert语句：');
             try {
                 $data = MysqlHelper::tableInsertSql($insertTable, $option);
             } catch (Exception $e) {
@@ -193,11 +200,11 @@ class MakeController extends Controller
                 continue;
             }
             if (empty($data)) {
-                $this->stdout('获取【' . $insertTable . '】表insert语句失败' . PHP_EOL, Console::FG_RED);
+                $this->stdout('失败' . PHP_EOL, Console::FG_RED);
                 continue;
             }
             $dbInsertSql[$insertTable] = $data['sql'];
-            $this->stdout('获取【' . $insertTable . '】表insert语句成功' . PHP_EOL);
+            $this->stdout('成功' . PHP_EOL, Console::FG_GREEN);
         }
         if (!empty($dbInsertSql)) {
             $this->stdout('所有insert语句获取成功，正在生成基准文件' . PHP_EOL, Console::FG_BLUE);
@@ -216,9 +223,12 @@ class MakeController extends Controller
 
     /**
      * 检查数据库结构是否发生变化
+     * 接收命令行参数
+     *  - generate 是否生成基准文件，Y or any
+     *  - continues-if-empty 无基准文件是否继续执行，Y or any
      *
-     * @author Bowen
-     * @email 3308725087@qq.com
+     * @author  Bowen
+     * @email   3308725087@qq.com
      *
      * @lasttime: 2023/1/29 2:28 PM
      */
@@ -227,54 +237,76 @@ class MakeController extends Controller
         $tables    = $this->tables_db;
         $addTables = $tables;
         $delTables = [];
-        if (!file_exists($this->dbSchemaFile)) {
-            $this->stdout('数据库基准文件不存在，不做检查' . PHP_EOL, Console::FG_YELLOW);
-            return;
-        }
+
         set_time_limit(0);
 
-        $this->stdout('开始获取数据库基准文件...' . PHP_EOL);
-        $schemaFileData = file_get_contents($this->dbSchemaFile);
-        $schemaFileData = Util::unserializer($schemaFileData);
+        if (file_exists($this->dbSchemaFile)) {
+            $this->stdout('开始获取数据库基准文件...' . PHP_EOL);
+            $schemaFileData = @file_get_contents($this->dbSchemaFile);
+            $schemaFileData = Util::unserializer($schemaFileData);
+        }
 
-        if (empty($schemaFileData)) {
-            $this->stdout('基准文件不存在，不进行对比' . PHP_EOL, Console::FG_YELLOW);
+        if (empty($schemaFileData) && (empty($this->CommandLineParams['continues-if-empty']) || $this->CommandLineParams['continues-if-empty'] === true)) {
+            $this->stdout('本地数据表基准文件不存在，是否继续？[Y/N]' . PHP_EOL);
+            $this->stdout("  输入[Y]将继续检查，输入任意其他字符将退出" . PHP_EOL, Console::FG_YELLOW);
+            $answer = strtolower(trim(fgets(STDIN)));
+            echo PHP_EOL;
+            echo PHP_EOL;
+            echo PHP_EOL;
+            echo ":" . $answer;
+            echo PHP_EOL;
+            echo PHP_EOL;
+            echo PHP_EOL;
+
+            $continuesIfEmpty = $answer === 'y';
+            if (!$continuesIfEmpty)
+                $this->stdout('退出差异检查' . PHP_EOL);
+        } else {
+            $continuesIfEmpty = isset($this->CommandLineParams['continues-if-empty']) && strtolower($this->CommandLineParams['continues-if-empty']) === 'y';
+        }
+        if (empty($schemaFileData) && !$continuesIfEmpty)
             return;
-        }
 
-        $this->stdout('开始与基准数据对比...' . PHP_EOL);
         $fixSql = [];
-        foreach ($schemaFileData as $table => $data) {
-            // 需要添加的表
-            $addTables = array_filter($addTables, function ($v) use ($table) {
-                return $v != $table;
-            });
+        $locDbs = []; // 缓存一份儿在下面遍历时获取过的表结构
+        // 根据基准文件进行数据对比
+        if (!empty($schemaFileData)) {
+            $this->stdout('开始与基准数据对比...' . PHP_EOL);
+            foreach ($schemaFileData as $table => $data) {
+                // 需要添加的表
+                $addTables = array_filter($addTables, function ($v) use ($table) {
+                    return $v != $table;
+                });
 
-            // 需要删除的表
-            if (!empty($tables) && !in_array($table, $tables))
-                $delTables[] = $table;
+                // 需要删除的表
+                if (!empty($tables) && !in_array($table, $tables))
+                    $delTables[] = $table;
 
-            $this->stdout("对比【{$table}】结果：");
-            try {
-                $loc_info = MysqlHelper::getTableSchema($table, true, true, [
-                    'resetTableIncrement' => true
-                ]);
-            } catch (Exception $e) {
-                $this->stdout("获取 $table 表结构失败" . PHP_EOL, Console::FG_RED);
-                $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
-                $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
-                continue;
+                $this->stdout("对比【{$table}】结果：");
+                try {
+                    $locDbs[$table] = MysqlHelper::getTableSchema($table, true, true, [
+                        'resetTableIncrement' => true
+                    ]);
+                } catch (Exception $e) {
+                    $this->stdout("获取 $table 表结构失败" . PHP_EOL, Console::FG_RED);
+                    $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
+                    $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
+                    continue;
+                }
+                // 以数据表结构为准，对比基准数据结构
+                $allSql = MysqlHelper::makeFixSql($data, $locDbs[$table], true);
+                if (!empty($allSql)) {
+                    $fixSql[$table] = $allSql;
+                    $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
+                } else {
+                    $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
+                }
             }
-            // 以数据表结构为准，对比基准数据结构
-            $allSql = MysqlHelper::makeFixSql($data, $loc_info, true);
-            if (!empty($allSql)) {
-                $fixSql[$table] = $allSql;
-                $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
-            } else {
-                $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
-            }
+        } else {
+            $this->stdout('基准文件不存在，跳过对比' . PHP_EOL, Console::FG_YELLOW);
         }
-        // 统计没有生成model的表
+
+        // ----- 统计对比数据 ----- /
         $noModelTables = array_filter($this->tables_db, function ($v) {
             return !in_array($v, $this->tables_model);
         });
@@ -283,6 +315,25 @@ class MakeController extends Controller
         $countDel      = count($delTables); // 删除表
         $countNoModel  = count($noModelTables); // 没有生成model的表
         $this->stdout('对比完成，共计' . ($count + $countAdd + $countDel) . '张表需要处理' . PHP_EOL, Console::FG_BLUE);
+
+        if (!empty($countNoModel)) {
+            $this->stdout("有{$countNoModel}张表没有生成model：" . PHP_EOL, Console::FG_BLUE);
+            $this->stdout(implode(PHP_EOL, $noModelTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：所有表都生成了model' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($countDel)) {
+            $this->stdout("删除了{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
+            $this->stdout(implode(PHP_EOL, $delTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：没有删除表' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($countAdd)) {
+            $this->stdout("新增了{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
+            $this->stdout(implode(PHP_EOL, $addTables) . PHP_EOL);
+        } else {
+            $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
+        }
         if (!empty($count)) {
             $this->stdout('修复sql语句如下：' . PHP_EOL);
             foreach ($fixSql as $table => $sql) {
@@ -292,24 +343,25 @@ class MakeController extends Controller
         } else {
             $this->stdout('Done：没有需要修复的数据' . PHP_EOL, Console::FG_GREEN);
         }
-        if (!empty($countAdd)) {
-            $this->stdout("新增了{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
-            $this->stdout(implode(PHP_EOL, $addTables) . PHP_EOL);
+
+        // 没有差异就结束
+        if (empty($count) && empty($countAdd) && empty($countDel))
+            return;
+
+        $this->stdout(PHP_EOL);
+
+        if (empty($this->CommandLineParams['generate']) || $this->CommandLineParams['generate'] === true) {
+            $this->stdout('存在差异，是否生成新的基准文件？[Y/N]' . PHP_EOL);
+            $this->stdout("  输入[Y]将生成新的基准文件，输入任意其他字符将退出" . PHP_EOL, Console::FG_YELLOW);
+            $answer = strtolower(trim(fgets(STDIN)));
+            $make   = $answer === 'y';
+            if (!$make)
+                $this->stdout('退出基准文件生成' . PHP_EOL);
         } else {
-            $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
-        }
-        if (!empty($countDel)) {
-            $this->stdout("删除了{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
-            $this->stdout(implode(PHP_EOL, $delTables) . PHP_EOL);
-        } else {
-            $this->stdout('Done：没有删除表' . PHP_EOL, Console::FG_GREEN);
-        }
-        if (!empty($countNoModel)) {
-            $this->stdout("有{$countNoModel}张表没有生成model：" . PHP_EOL, Console::FG_BLUE);
-            $this->stdout(implode(PHP_EOL, $noModelTables) . PHP_EOL);
-        } else {
-            $this->stdout('Done：所有表都生成了model' . PHP_EOL, Console::FG_GREEN);
+            $make = isset($this->CommandLineParams['generate']) && strtolower($this->CommandLineParams['generate']) === 'y';
         }
 
+        if ($make)
+            $this->actionDb($locDbs);
     }
 }
