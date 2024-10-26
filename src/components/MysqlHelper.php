@@ -346,7 +346,7 @@ class MysqlHelper
         if (!empty($diff['diffs']['charset'])) {
             $pieces   = explode('_', $schema2['charset']);
             $charset  = $pieces[0];
-            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DEFAULT CHARSET = {$charset}";
+            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DEFAULT CHARSET = $charset";
         }
 
         if (!empty($diff['fields'])) {
@@ -355,14 +355,14 @@ class MysqlHelper
                     $field = $schema2['fields'][$fieldName];
                     $piece = self::buildFieldSql($field);
                     if (!empty($field['rename']) && !empty($schema1['fields'][$field['rename']])) {
-                        $sql = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['rename']}` `{$field['name']}` {$piece}";
+                        $sql = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['rename']}` `{$field['name']}` $piece";
                         unset($schema1['fields'][$field['rename']]);
                     } else {
                         $pos = '';
                         if (!empty($field['position'])) {
                             $pos = ' ' . $field['position'];
                         }
-                        $sql = "ALTER TABLE `{$schema1['tableName']}` ADD `{$field['name']}` {$piece}{$pos}";
+                        $sql = "ALTER TABLE `{$schema1['tableName']}` ADD `{$field['name']}` $piece$pos";
                     }
                     $primary     = [];
                     $isIncrement = [];
@@ -381,7 +381,7 @@ class MysqlHelper
                             if (!empty($piece)) {
                                 $piece = str_replace('AUTO_INCREMENT', '', $piece);
                             }
-                            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$primary['name']}` `{$primary['name']}` {$piece}";
+                            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$primary['name']}` `{$primary['name']}` $piece";
                         }
                     }
                     $sqlArr[] = $sql;
@@ -392,7 +392,7 @@ class MysqlHelper
                     $field = $schema2['fields'][$fieldName];
                     $piece = self::buildFieldSql($field);
                     if (!empty($schema1['fields'][$fieldName])) {
-                        $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['name']}` `{$field['name']}` {$piece}";
+                        $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$field['name']}` `{$field['name']}` $piece";
                     }
                 }
             }
@@ -410,7 +410,7 @@ class MysqlHelper
                 foreach ($diff['indexes']['less'] as $indexName) {
                     $index    = $schema2['indexes'][$indexName];
                     $piece    = self::buildIndexSql($index);
-                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` ADD {$piece}";
+                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` ADD $piece";
                 }
             }
             if (!empty($diff['indexes']['diff'])) {
@@ -418,7 +418,7 @@ class MysqlHelper
                     $index = $schema2['indexes'][$indexName];
                     $piece = self::buildIndexSql($index);
 
-                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DROP " . ('PRIMARY' == $indexName ? ' PRIMARY KEY ' : "INDEX $indexName") . ", ADD {$piece}";
+                    $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` DROP " . ('PRIMARY' == $indexName ? ' PRIMARY KEY ' : "INDEX $indexName") . ", ADD $piece";
                 }
             }
             if ($strict && !empty($diff['indexes']['greater'])) {
@@ -429,7 +429,7 @@ class MysqlHelper
         }
         if (!empty($isIncrement)) {
             $piece    = self::buildFieldSql($isIncrement);
-            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` {$piece}";
+            $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` CHANGE `{$isIncrement['name']}` `{$isIncrement['name']}` $piece";
         }
 
         return $sqlArr;
@@ -487,7 +487,7 @@ class MysqlHelper
         $increment = $field['increment'] ? ' AUTO_INCREMENT' : '';
         $comment   = !empty($field['comment']) ? " COMMENT '{$field['comment']}'" : '';
 
-        return "{$field['type']}{$length}{$signed}{$null}{$default}{$increment}{$comment}";
+        return "{$field['type']}$length$signed$null$default$increment$comment";
     }
 
     /**
@@ -497,9 +497,9 @@ class MysqlHelper
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名
+     * @param string $db
      *
      * @return string
-     * @throws Exception
      * @lasttime: 2022/4/2 10:37 PM
      */
     public static function tableSchemas(string $tableName, string $db = 'db'): string
