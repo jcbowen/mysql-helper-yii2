@@ -151,7 +151,7 @@ class MysqlHelper
             if ($getDefault) $temp['default'] = $value['Default'];
             $temp['signed']    = empty($type[1]);
             $temp['increment'] = 'auto_increment' == $value['Extra'];
-            if ($getComment) $temp['comment'] = $value['Comment'] ?: '';
+            if ($getComment) $temp['comment'] = !empty($value['Comment']) ? base64_encode($value['Comment']) : '';
             $ret['fields'][$value['Field']] = $temp;
         }
         $result = Yii::$app->$db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
@@ -485,7 +485,12 @@ class MysqlHelper
         $null      = empty($field['null']) ? ' NOT NULL' : '';
         $default   = isset($field['default']) ? " DEFAULT '" . $field['default'] . "'" : '';
         $increment = $field['increment'] ? ' AUTO_INCREMENT' : '';
-        $comment   = !empty($field['comment']) ? " COMMENT '{$field['comment']}'" : '';
+        $comment   = '';
+        if (!empty($field['comment'])) {
+            $deComment = @base64_decode($field['comment']);
+            if (!empty($deComment))
+                $comment = " COMMENT '$deComment'";
+        }
 
         return "{$field['type']}$length$signed$null$default$increment$comment";
     }
