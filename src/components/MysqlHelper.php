@@ -20,11 +20,12 @@ class MysqlHelper
     /**
      * 获取库名称
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param string|null $dsn 数据库连接DSN
-     * @param string $db 数据库连接别名
+     * @param string      $db  数据库连接别名
+     *
      * @return string
      * @lasttime: 2022/4/2 10:17 AM
      */
@@ -54,10 +55,11 @@ class MysqlHelper
     /**
      * 获取所有表名
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param string $db 数据库连接别名
+     *
      * @return string[] all table names in the database.
      * @lasttime: 2023/2/20 3:02 PM
      */
@@ -69,11 +71,12 @@ class MysqlHelper
     /**
      * 获取完整表名称
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名称(含前缀)
-     * @param string $db 数据库连接别名
+     * @param string $db        数据库连接别名
+     *
      * @return string
      * @lasttime: 2022/4/2 1:05 PM
      */
@@ -102,14 +105,15 @@ class MysqlHelper
     /**
      * 获取表结构
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
-     * @param string $tableName 表名
-     * @param bool $getDefault 是否获取字段默认值
-     * @param bool $getComment 是否获取字段注释
-     * @param array $options 其他选项
-     *              - resetTableIncrement 是否重置表自增量
+     * @param string $tableName  表名
+     * @param bool   $getDefault 是否获取字段默认值
+     * @param bool   $getComment 是否获取字段注释
+     * @param array  $options    其他选项
+     *                           - resetTableIncrement 是否重置表自增量
+     *
      * @return array
      * @throws Exception
      * @lasttime: 2022/4/1 11:44 PM
@@ -163,11 +167,12 @@ class MysqlHelper
     /**
      * 获取数据库所有表的序列化结构
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param string $dbname 数据库名称
-     * @param string $db 数据库连接别名
+     * @param string $db     数据库连接别名
+     *
      * @return string
      * @throws Exception
      * @lasttime: 2022/4/2 11:33 AM
@@ -187,10 +192,11 @@ class MysqlHelper
     /**
      * 根据结构生成建表语句
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param array $schema 表结构
+     *
      * @return string
      * @lasttime: 2022/4/2 11:06 PM
      */
@@ -230,10 +236,11 @@ class MysqlHelper
     /**
      * 根据表名生成删除表语句
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param string $tableName
+     *
      * @return string
      * @lasttime: 2023/2/14 4:03 PM
      */
@@ -246,11 +253,12 @@ class MysqlHelper
     /**
      * 比较两张表的结构
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param array $table1 表1的结构
      * @param array $table2 表2的结构，基准表
+     *
      * @return array
      * @lasttime: 2022/4/2 11:05 PM
      */
@@ -307,12 +315,13 @@ class MysqlHelper
     /**
      * 创建修复两张差异表的语句
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param array $schema1 表1的结构,需要修复的表
      * @param array $schema2 表2的结构,基准表
-     * @param bool $strict 使用严格模式, 严格模式将会把表2完全变成表1的结构, 否则将只处理表2种大于表1的内容(多出的字段和索引)
+     * @param bool  $strict  使用严格模式, 严格模式将会把表2完全变成表1的结构, 否则将只处理表2种大于表1的内容(多出的字段和索引)
+     *
      * @return array
      * @lasttime: 2022/4/2 11:08 PM
      */
@@ -429,10 +438,11 @@ class MysqlHelper
     /**
      * 构造索引sql语句
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param array $index 索引信息
+     *
      * @return string
      * @lasttime: 2022/4/2 10:46 PM
      */
@@ -457,6 +467,7 @@ class MysqlHelper
      * 构造完整字段的SQL语句.
      *
      * @param array $field 字段信息
+     *
      * @return string
      */
     public static function buildFieldSql(array $field): string
@@ -482,10 +493,11 @@ class MysqlHelper
     /**
      * 根据表名生成建表语句
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
      * @param string $tableName 表名
+     *
      * @return string
      * @throws Exception
      * @lasttime: 2022/4/2 10:37 PM
@@ -506,16 +518,17 @@ class MysqlHelper
     /**
      * 获取指定表的insert语句
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
-     * @param string $tableName 表名
-     * @param array $options 其他选项
-     * - bool $truncate 是否清空表
-     * - bool $ignore 是否使用INSERT IGNORE INTO
-     * - int $batchSize 每次查询的条数
-     * - callable|null $getInsertDataQuery 获取查询语句
-     * @param Connection|string|null $db 数据库连接
+     * @param string                 $tableName 表名
+     * @param array                  $options   其他选项
+     *                                          - bool $truncate 是否清空表
+     *                                          - bool $ignore 是否使用INSERT IGNORE INTO
+     *                                          - int $batchSize 每次查询的条数
+     *                                          - callable|null $getInsertDataQuery 获取查询语句
+     * @param Connection|string|null $db        数据库连接
+     *
      * @return array|false
      * @throws Exception
      * @lasttime: 2022/12/14 13:53
@@ -594,12 +607,13 @@ class MysqlHelper
     /**
      * 字符串替换，只替换一次
      *
-     * @author Bowen
+     * @author  Bowen
      * @email bowen@jiuchet.com
      *
-     * @param string $needle 要替换的字符串
-     * @param string $replace 替换成的字符串
+     * @param string $needle   要替换的字符串
+     * @param string $replace  替换成的字符串
      * @param string $haystack 被替换的字符串
+     *
      * @return string
      * @lasttime: 2023/2/14 4:09 PM
      */
