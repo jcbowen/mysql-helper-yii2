@@ -487,7 +487,7 @@ class MysqlHelper
         $increment = $field['increment'] ? ' AUTO_INCREMENT' : '';
         $comment   = '';
         if (!empty($field['comment'])) {
-            $deComment = @base64_decode($field['comment']);
+            $deComment = @base64_decode($field['comment']) ?? $field['comment'];
             if (!empty($deComment))
                 $comment = " COMMENT '$deComment'";
         }
