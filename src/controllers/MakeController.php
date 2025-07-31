@@ -61,7 +61,11 @@ class MakeController extends ConsoleController
     public $dir = '@console/runtime/update/db';
 
     /**
-     * @var string 模型所在目录
+     * @var string|array 模型所在目录，支持单个目录字符串或多个目录数组
+     *
+     * 示例：
+     * - 单个目录：'@common/models'
+     * - 多个目录：['@common/models', '@backend/models', '@frontend/models']
      */
     public $modelsDir = '@common/models';
 
@@ -106,18 +110,34 @@ class MakeController extends ConsoleController
         $this->tables_db = $tables;
 
         // 读取models中的所有表名
-        $files  = FileHelper::findFiles(Yii::getAlias($this->modelsDir), [
-            'only'      => ['*.php'],
-            'recursive' => true,
-        ]);
         $tables = [];
-        foreach ($files as $file) {
-            $content = file_get_contents($file);
-            if (preg_match('/return \'{{%(.*)}}\';/', $content, $matches)) {
-                if (!in_array($matches[1], $this->ignoreTables))
-                    $tables[] = $matches[1];
+
+        // 确保modelsDir是数组格式
+        $modelDirs = is_array($this->modelsDir) ? $this->modelsDir : [$this->modelsDir];
+
+        foreach ($modelDirs as $modelDir) {
+            $modelDirPath = Yii::getAlias($modelDir);
+
+            // 验证目录是否存在
+            if (!is_dir($modelDirPath)) {
+                $this->stderr("模型目录不存在: {$modelDir} ({$modelDirPath})" . PHP_EOL, Console::FG_YELLOW);
+                continue;
+            }
+
+            $files = FileHelper::findFiles($modelDirPath, [
+                'only'      => ['*.php'],
+                'recursive' => true,
+            ]);
+
+            foreach ($files as $file) {
+                $content = file_get_contents($file);
+                if (preg_match('/return \'{{%(.*)}}\';/', $content, $matches)) {
+                    if (!in_array($matches[1], $this->ignoreTables))
+                        $tables[] = $matches[1];
+                }
             }
         }
+
         $tables = array_unique($tables);
         sort($tables);
         $this->tables_model = $tables;
