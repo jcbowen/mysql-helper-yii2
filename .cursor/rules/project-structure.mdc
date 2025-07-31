@@ -1,0 +1,36 @@
+---
+alwaysApply: true
+---
+
+# MySQL Helper Yii2 项目结构指南
+
+这是一个基于 Yii2 的 MySQL 维护助手包，用于表结构管理、差异对比和修复 SQL 生成。
+
+## 核心组件
+
+- [MysqlHelper.php](mdc:src/components/MysqlHelper.php) - 主要的 MySQL 操作工具类
+- [MakeController.php](mdc:src/controllers/MakeController.php) - 控制台命令控制器，用于检查和生成数据库基准文件
+- [composer.json](mdc:composer.json) - 包配置文件，包含依赖和自动加载配置
+
+## 项目特点
+
+1. **表结构管理**: 可以获取、比较和生成表结构
+2. **差异检测**: 对比数据库表结构的变化
+3. **SQL 生成**: 自动生成修复 SQL 语句
+4. **基准文件**: 生成和维护数据库结构基准文件
+
+## 目录结构
+
+```
+src/
+├── components/     # 核心功能组件
+│   └── MysqlHelper.php
+└── controllers/    # 控制台命令控制器
+    └── MakeController.php
+```
+
+## 依赖关系
+
+- PHP >= 7.2.0
+- Yii2 >= 2.0.11
+- jcbase-yii2 扩展包

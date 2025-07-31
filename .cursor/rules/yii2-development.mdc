@@ -1,0 +1,42 @@
+---
+globs: *.php
+---
+
+# Yii2 开发规范
+
+## 命名空间和类命名
+
+- 使用 PSR-4 自动加载标准
+- 命名空间：`Jcbowen\MysqlHelperYii2\`
+- 类名使用大驼峰命名法（PascalCase）
+- 方法名使用小驼峰命名法（camelCase）
+- 常量使用全大写加下划线
+
+## 代码风格
+
+1. **类结构顺序**:
+   - 常量
+   - 属性（按可见性：public → protected → private）
+   - 构造函数
+   - 公共方法
+   - 受保护方法
+   - 私有方法
+
+2. **方法文档**:
+   - 必须包含 `@author` 和 `@email`
+   - 使用 `@param` 描述参数
+   - 使用 `@return` 描述返回值
+   - 使用 `@throws` 描述异常
+   - 使用 `@lasttime` 记录最后修改时间
+
+3. **数据库操作**:
+   - 优先使用 `Yii::$app->db` 进行数据库操作
+   - 使用参数化查询防止 SQL 注入
+   - 表名通过 `tableName()` 方法处理前缀
+
+## Yii2 特定约定
+
+- 控制器继承自适当的基类（如 `ConsoleController`）
+- 使用 Yii2 的 Query Builder 而不是原生 SQL
+- 合理使用 Yii2 的缓存机制
+- 遵循 Yii2 的错误处理模式
