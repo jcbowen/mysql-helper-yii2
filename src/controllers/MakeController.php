@@ -104,9 +104,10 @@ class MakeController extends ConsoleController
         // 获取数据库中的所有表名
         $tables = MysqlHelper::getAllTables();
         // 去除表前缀
-        foreach ($tables as &$table) {
-            $table = str_replace(Yii::$app->db->tablePrefix, '', $table);
-        }
+        // foreach ($tables as &$table) {
+        // $table = str_replace(Yii::$app->db->tablePrefix, '', $table);
+        // }
+        // 保持完整表名，不去除表前缀，便于后续精确对比
         $this->tables_db = $tables;
 
         // 读取models中的所有表名
@@ -132,8 +133,13 @@ class MakeController extends ConsoleController
             foreach ($files as $file) {
                 $content = file_get_contents($file);
                 if (preg_match('/return \'{{%(.*)}}\';/', $content, $matches)) {
-                    if (!in_array($matches[1], $this->ignoreTables))
-                        $tables[] = $matches[1];
+                    // if (!in_array($matches[1], $this->ignoreTables))
+                    // $tables[] = $matches[1];
+                    if (!in_array($matches[1], $this->ignoreTables)) {
+                        // 将模型表名转换为完整表名（加上表前缀）
+                        $fullTableName = MysqlHelper::tableName($matches[1]);
+                        $tables[]      = $fullTableName;
+                    }
                 }
             }
         }
@@ -219,30 +225,37 @@ class MakeController extends ConsoleController
         if (!empty($schemaFileData)) {
             $this->stdout('开始与基准数据对比...' . PHP_EOL);
             foreach ($schemaFileData as $table => $data) {
+                // 兼容性处理：如果基准文件中的表名不包含前缀，则转换为完整表名
+                $fullTableName = $table;
+                if (!in_array($table, $this->tables_db)) {
+                    // 尝试加上前缀进行匹配
+                    $fullTableName = MysqlHelper::tableName($table);
+                }
+
                 // 需要添加的表
-                $addTables = array_filter($addTables, function ($v) use ($table) {
-                    return $v != $table;
+                $addTables = array_filter($addTables, function ($v) use ($fullTableName) {
+                    return $v != $fullTableName;
                 });
 
                 // 需要删除的表
-                if (!empty($tables) && !in_array($table, $tables))
-                    $delTables[] = $table;
+                if (!empty($tables) && !in_array($fullTableName, $tables))
+                    $delTables[] = $fullTableName;
 
-                $this->stdout("对比【{$table}】结果：");
+                $this->stdout("对比【{$fullTableName}】结果：");
                 try {
-                    $locDbs[$table] = MysqlHelper::getTableSchema($table, true, true, [
+                    $locDbs[$fullTableName] = MysqlHelper::getTableSchema($fullTableName, true, true, [
                         'resetTableIncrement' => true
                     ]);
                 } catch (Exception $e) {
-                    $this->stdout("获取 $table 表结构失败" . PHP_EOL, Console::FG_RED);
+                    $this->stdout("获取 $fullTableName 表结构失败" . PHP_EOL, Console::FG_RED);
                     $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
                     $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
                     continue;
                 }
                 // 以数据表结构为准，对比基准数据结构
-                $allSql = MysqlHelper::makeFixSql($data, $locDbs[$table], true);
+                $allSql = MysqlHelper::makeFixSql($data, $locDbs[$fullTableName], true);
                 if (!empty($allSql)) {
-                    $fixSql[$table] = $allSql;
+                    $fixSql[$fullTableName] = $allSql;
                     $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
                 } else {
                     $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
@@ -343,19 +356,21 @@ class MakeController extends ConsoleController
 
         $dbSchema = [];
         foreach ($tables as $table) {
+            // 存储到基准文件时，表名键名去除前缀，保持原有约定
+            $schemaKey = str_replace(Yii::$app->db->tablePrefix, '', $table);
             if (!empty($dbSchemaContext[$table])) {
-                $dbSchema[$table] = $dbSchemaContext[$table];
+                $dbSchema[$schemaKey] = $dbSchemaContext[$table];
             } else {
                 try {
                     $this->stdout('获取【' . $table . '】表结构：');
-                    $dbSchema[$table] = MysqlHelper::getTableSchema($table, true, true, [
+                    $dbSchema[$schemaKey] = MysqlHelper::getTableSchema($table, true, true, [
                         'resetTableIncrement' => true
                     ]);
                 } catch (Exception $e) {
                     $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
                     continue;
                 }
-                if (empty($dbSchema[$table])) {
+                if (empty($dbSchema[$schemaKey])) {
                     $this->stdout('失败' . PHP_EOL, Console::FG_RED);
                     continue;
                 }
@@ -376,7 +391,9 @@ class MakeController extends ConsoleController
 
         $dbInsertSql = [];
         foreach ($this->insertTables as $insertTable => $option) {
-            $this->stdout('获取【' . $insertTable . '】表insert语句：');
+            // 统一转换为完整表名（包含前缀）用于显示与索引，保持与数据库一致
+            $fullInsertTableName = MysqlHelper::tableName($insertTable);
+            $this->stdout('获取【' . $fullInsertTableName . '】表insert语句：');
             try {
                 $data = MysqlHelper::tableInsertSql($insertTable, $option);
             } catch (Exception $e) {
@@ -387,7 +404,8 @@ class MakeController extends ConsoleController
                 $this->stdout('失败' . PHP_EOL, Console::FG_RED);
                 continue;
             }
-            $dbInsertSql[$insertTable] = $data['sql'];
+            // 使用完整表名作为索引键，便于阅读与一致性
+            $dbInsertSql[$fullInsertTableName] = $data['sql'];
             $this->stdout('成功' . PHP_EOL, Console::FG_GREEN);
         }
         if (!empty($dbInsertSql)) {
