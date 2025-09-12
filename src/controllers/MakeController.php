@@ -253,6 +253,15 @@ class MakeController extends ConsoleController
                     $locDbs[$fullTableName] = MysqlHelper::getTableSchema($fullTableName, true, true, [
                         'resetTableIncrement' => true
                     ]);
+                    
+                    // 确保字段注释是base64编码的（兼容性处理）
+                    if (!empty($locDbs[$fullTableName]['fields'])) {
+                        foreach ($locDbs[$fullTableName]['fields'] as $fieldName => &$field) {
+                            if (!empty($field['comment']) && !Util::is_base64($field['comment'])) {
+                                $field['comment'] = base64_encode($field['comment']);
+                            }
+                        }
+                    }
                 } catch (Exception $e) {
                     $this->stdout("获取 $fullTableName 表结构失败" . PHP_EOL, Console::FG_RED);
                     $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
@@ -429,5 +438,6 @@ class MakeController extends ConsoleController
 
         $this->stdout('执行完毕' . PHP_EOL, Console::FG_BLUE);
     }
+
 
 }

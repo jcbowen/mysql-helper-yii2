@@ -487,7 +487,16 @@ class MysqlHelper
         $increment = $field['increment'] ? ' AUTO_INCREMENT' : '';
         $comment   = '';
         if (!empty($field['comment'])) {
-            $deComment = @base64_decode($field['comment']) ?? $field['comment'];
+            // 尝试base64解码，如果解码失败且不是false，说明原内容就是明文
+            $decodedComment = @base64_decode($field['comment'], true);
+            if ($decodedComment !== false) {
+                // 成功解码，使用解码后的内容
+                $deComment = $decodedComment;
+            } else {
+                // 解码失败，可能是明文注释，直接使用
+                $deComment = $field['comment'];
+            }
+            
             if (!empty($deComment))
                 $comment = " COMMENT '$deComment'";
         }
