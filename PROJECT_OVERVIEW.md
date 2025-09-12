@@ -16,6 +16,7 @@ MySQL Helper Yii2 是一个专为 Yii2 框架设计的 MySQL 数据库维护助�
 - `getDBName()` - 获取数据库名称
 - `getAllTables()` - 获取所有表名
 - `tableName()` - 处理表名和前缀
+- `removeTablePrefix()` - 安全地去除表前缀
 
 **表结构管理**
 - `getTableSchema()` - 获取完整的表结构信息
@@ -56,6 +57,9 @@ public $modelsDir = [
     '@backend/models',     // 后台模型
     '@frontend/models',    // 前台模型
 ];
+
+// 也支持单个目录字符串配置
+public $modelsDir = '@common/models';
 ```
 
 **优势：**
@@ -78,6 +82,7 @@ $fixSql = MysqlHelper::makeFixSql($current, $target, true);
 - 字段差异（新增、删除、修改）
 - 索引差异（主键、唯一索引、普通索引）
 - 表属性差异（引擎、字符集等）
+- 字段注释处理（支持 Base64 编码存储）
 
 ### 3. 灵活的配置选项
 
@@ -97,7 +102,25 @@ public $insertTables = [
 ];
 ```
 
-### 4. 命令行工具集成
+### 4. 表前缀智能处理
+
+```php
+// 自动处理表前缀
+$fullTableName = MysqlHelper::tableName('user'); // 自动添加前缀
+$simpleName = MysqlHelper::removeTablePrefix('jc_user'); // 安全去除前缀
+
+// 支持多种表名格式
+$table1 = MysqlHelper::tableName('{{%user}}'); // Yii2 格式
+$table2 = MysqlHelper::tableName('user'); // 简单格式
+```
+
+**特性：**
+- 自动识别和添加表前缀
+- 安全地去除表前缀
+- 支持 Yii2 表名格式 `{{%table}}`
+- 向后兼容旧版本基准文件
+
+### 5. 命令行工具集成
 
 ```bash
 # 检查结构变化
@@ -134,6 +157,7 @@ php yii make/check --generate=y --continues-if-empty=y
    - 构建标准 SQL 语句
    - 处理特殊字符和编码
    - 优化 SQL 执行顺序
+   - 智能处理字段注释（Base64 编码兼容）
 
 ## 使用场景
 
@@ -233,4 +257,17 @@ php yii make/check --generate=y --continues-if-empty=y
 
 - 与更多 Yii2 扩展集成
 - CI/CD 流程集成
-- 云服务集成 
+- 云服务集成
+
+## 系统要求
+
+### 依赖关系
+
+- **PHP**: >= 7.2.0 < 8.0.0
+- **Yii2**: >= 2.0.11
+- **jcbase-yii2**: >= 0.30.1
+
+### 扩展要求
+
+- **PDO**: MySQL 数据库驱动
+- **ctype**: 字符类型检测扩展
