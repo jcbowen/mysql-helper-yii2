@@ -132,12 +132,19 @@ class MakeController extends ConsoleController
 
             foreach ($files as $file) {
                 $content = file_get_contents($file);
-                if (preg_match('/return \'{{%(.*)}}\';/', $content, $matches)) {
-                    // if (!in_array($matches[1], $this->ignoreTables))
-                    // $tables[] = $matches[1];
-                    if (!in_array($matches[1], $this->ignoreTables)) {
-                        // 将模型表名转换为完整表名（加上表前缀）
-                        $fullTableName = MysqlHelper::tableName($matches[1]);
+                if (preg_match('/return \'{{%?(.*)}}\';/', $content, $matches)) {
+                    $tableName = trim($matches[1]);
+                    
+                    // 验证表名有效性
+                    if (empty($tableName)) {
+                        $this->stderr("警告：在文件 {$file} 中发现空的表名定义" . PHP_EOL, Console::FG_YELLOW);
+                        continue;
+                    }
+                    
+                    // 检查是否在忽略列表中
+                    if (!in_array($tableName, $this->ignoreTables)) {
+                        // 将模型表名转换为完整表名（MysqlHelper::tableName会自动处理前缀）
+                        $fullTableName = MysqlHelper::tableName($tableName);
                         $tables[]      = $fullTableName;
                     }
                 }
@@ -357,7 +364,7 @@ class MakeController extends ConsoleController
         $dbSchema = [];
         foreach ($tables as $table) {
             // 存储到基准文件时，表名键名去除前缀，保持原有约定
-            $schemaKey = str_replace(Yii::$app->db->tablePrefix, '', $table);
+            $schemaKey = MysqlHelper::removeTablePrefix($table);
             if (!empty($dbSchemaContext[$table])) {
                 $dbSchema[$schemaKey] = $dbSchemaContext[$table];
             } else {
@@ -422,4 +429,5 @@ class MakeController extends ConsoleController
 
         $this->stdout('执行完毕' . PHP_EOL, Console::FG_BLUE);
     }
+
 }

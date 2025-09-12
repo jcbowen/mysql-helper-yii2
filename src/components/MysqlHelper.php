@@ -610,6 +610,31 @@ class MysqlHelper
     // ------ 以下为私有辅助方法 ------ /
 
     /**
+     * 安全地去除表前缀
+     *
+     * @author  Bowen
+     * @email bowen@jiuchet.com
+     *
+     * @param string $tableName 完整表名
+     * @param string $db        数据库连接别名
+     *
+     * @return string 去除前缀后的表名
+     * @lasttime: 2024/12/19
+     */
+    public static function removeTablePrefix(string $tableName, string $db = 'db'): string
+    {
+        $prefix = Yii::$app->$db->tablePrefix;
+        
+        // 如果没有前缀或表名不以前缀开头，直接返回
+        if (empty($prefix) || !Util::startsWith($tableName, $prefix)) {
+            return $tableName;
+        }
+        
+        // 安全地去除前缀
+        return substr($tableName, strlen($prefix));
+    }
+
+    /**
      * 字符串替换，只替换一次
      *
      * @author  Bowen
