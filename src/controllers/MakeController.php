@@ -132,21 +132,53 @@ class MakeController extends ConsoleController
 
             foreach ($files as $file) {
                 $content = file_get_contents($file);
-                if (preg_match('/return \'{{%?(.*)}}\';/', $content, $matches)) {
-                    $tableName = trim($matches[1]);
-                    
-                    // 验证表名有效性
-                    if (empty($tableName)) {
-                        $this->stderr("警告：在文件 {$file} 中发现空的表名定义" . PHP_EOL, Console::FG_YELLOW);
-                        continue;
+
+                // 从文件中提取类名
+                $className = $this->getClassNameFromFile($file, $content);
+                if (empty($className)) {
+                    continue;
+                }
+
+                try {
+                    // 检查类是否存在
+                    if (!class_exists($className)) {
+                        // 尝试自动加载类
+                        spl_autoload_call($className);
                     }
-                    
-                    // 检查是否在忽略列表中
-                    if (!in_array($tableName, $this->ignoreTables)) {
-                        // 将模型表名转换为完整表名（MysqlHelper::tableName会自动处理前缀）
-                        $fullTableName = MysqlHelper::tableName($tableName);
-                        $tables[]      = $fullTableName;
+
+                    if (class_exists($className)) {
+                        // 检查类是否有tableName静态方法
+                        if (method_exists($className, 'tableName')) {
+                            // 直接调用静态方法获取表名
+                            $tableName = $className::tableName();
+
+                            // 提取实际的表名（去除{{%和}}）
+                            if (preg_match('/{{%?([^}]+)}}/', $tableName, $matches)) {
+                                $tableName = trim($matches[1]);
+                            } else {
+                                // 如果没有{{%前缀，直接使用表名
+                                $tableName = $tableName;
+                            }
+
+                            // 验证表名有效性
+                            if (empty($tableName)) {
+                                $this->stderr("警告：在文件 {$file} 中发现空的表名定义" . PHP_EOL, Console::FG_YELLOW);
+                                continue;
+                            }
+
+                            // 检查是否在忽略列表中
+                            if (!in_array($tableName, $this->ignoreTables)) {
+                                // 将模型表名转换为完整表名（MysqlHelper::tableName会自动处理前缀）
+                                $fullTableName = MysqlHelper::tableName($tableName);
+                                $tables[]      = $fullTableName;
+                            }
+                        }
+                        // 跳过没有tableName方法的模型（如表单模型）
                     }
+                } catch (\Throwable $e) {
+                    // 捕获所有异常，避免单个模型错误影响整体执行
+                    $this->stderr("警告：处理文件 {$file} 时出错: " . $e->getMessage() . PHP_EOL, Console::FG_YELLOW);
+                    continue;
                 }
             }
         }
@@ -165,6 +197,75 @@ class MakeController extends ConsoleController
 
         $this->dbSchemaFile = $this->dir . '/db_schema.txt';
         $this->dbInsertFile = $this->dir . '/db_insert.sql';
+    }
+
+    /**
+     * 从PHP文件中提取类名
+     *
+     * @author  Bowen
+     * @email bowen@jiuchet.com
+     * @lasttime: 2024/3/9 10:11 AM
+     *
+     * @param string $content 文件内容
+     * @param string $file    文件路径
+     *
+     * @return string|bool 类名或false
+     */
+    private function getClassNameFromFile(string $file, string $content)
+    {
+        // 首先尝试使用token_get_all解析文件，更安全准确
+        $tokens      = token_get_all($content);
+        $namespace   = '';
+        $className   = '';
+        $inNamespace = false;
+        $inClass     = false;
+
+        foreach ($tokens as $token) {
+            if (is_array($token)) {
+                list($id, $text, $line) = $token;
+
+                // 处理命名空间
+                if ($id === T_NAMESPACE) {
+                    $inNamespace = true;
+                    $namespace   = '';
+                } elseif ($inNamespace) {
+                    if ($id === T_STRING || $id === T_NS_SEPARATOR) {
+                        $namespace .= $text;
+                    } elseif ($id === ';' || $id === '{') {
+                        // 命名空间声明结束
+                        $inNamespace = false;
+                    }
+                } // 处理类名
+                else if ($id === T_CLASS || $id === T_TRAIT || $id === T_INTERFACE) {
+                    $inClass = true;
+                } else if ($inClass && $id === T_STRING) {
+                    $className = $text;
+                    break;
+                }
+            } else {
+                // 处理字符串类型的token，比如分号、大括号等
+                if ($inNamespace && ($token === ';' || $token === '{')) {
+                    // 命名空间声明结束
+                    $inNamespace = false;
+                }
+            }
+        }
+
+        if (!empty($className)) {
+            return !empty($namespace) ? $namespace . '\\' . $className : $className;
+        }
+
+        // 如果token_get_all失败，尝试使用正则表达式
+        if (preg_match('/namespace\s+([^;]+);/', $content, $matches)) {
+            $namespace = trim($matches[1]);
+        }
+
+        if (preg_match('/class\s+([^\s{]+)/', $content, $matches)) {
+            $className = trim($matches[1]);
+            return !empty($namespace) ? $namespace . '\\' . $className : $className;
+        }
+
+        return false;
     }
 
     /**
@@ -253,7 +354,7 @@ class MakeController extends ConsoleController
                     $locDbs[$fullTableName] = MysqlHelper::getTableSchema($fullTableName, true, true, [
                         'resetTableIncrement' => true
                     ]);
-                    
+
                     // 确保字段注释是base64编码的（兼容性处理）
                     if (!empty($locDbs[$fullTableName]['fields'])) {
                         foreach ($locDbs[$fullTableName]['fields'] as $fieldName => &$field) {
@@ -438,6 +539,4 @@ class MakeController extends ConsoleController
 
         $this->stdout('执行完毕' . PHP_EOL, Console::FG_BLUE);
     }
-
-
 }
