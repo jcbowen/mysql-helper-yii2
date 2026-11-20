@@ -1,0 +1,8 @@
+/.vscode export-ignore
+/.vscode/** export-ignore
+/.cursor export-ignore
+/.cursor/** export-ignore
+/scripts export-ignore
+/scripts/** export-ignore
+/.gitignore export-ignore
+/PROJECT_OVERVIEW.md export-ignore
