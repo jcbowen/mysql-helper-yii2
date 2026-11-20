@@ -618,12 +618,12 @@ class MakeController extends ConsoleController
                 // 单行进度：慢库下逐表查询可达数秒，让用户知道进行到哪了
                 $this->showProgress($compareIndex, $compareTotal, '对比中', $table);
 
-                // 兼容性处理：如果基准文件中的表名不包含前缀，则转换为完整表名
-                $fullTableName = $table;
-                if (!in_array($table, $this->tables_db)) {
-                    // 尝试加上前缀进行匹配
-                    $fullTableName = MysqlHelper::tableName($table);
-                }
+                // 基准文件键名统一为“去前缀表名”（actionDb 存储时经 removeTablePrefix 处理），
+                // 因此对比时无条件加前缀转换为完整表名。
+                // - prefix='sl_' 时 'member' → 'sl_member'，避免同库存在不带前缀同名表（member/config/queue 等）时被误判；
+                // - prefix 为空时原样返回，兼容无前缀库；
+                // - 兼容旧基准键为完整表名的情况（startsWith(prefix) 时 tableName 原样返回）。
+                $fullTableName = MysqlHelper::tableName($table);
 
                 // 需要添加的表
                 $addTables = array_filter($addTables, function ($v) use ($fullTableName) {
