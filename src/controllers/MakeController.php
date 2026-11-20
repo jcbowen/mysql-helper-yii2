@@ -88,11 +88,15 @@ class MakeController extends ConsoleController
     protected $tables_model = [];
 
     // ----- 专属命令行options ----- /
-
-    /** @var bool 检查完毕，如果存在差异，是否生成基准文件 */
+    /** @var string 检查完毕，如果存在差异，是否生成基准文件（'' 交互式确认 / 'y' 直接生成） */
     public $generate = '';
-    /** @var bool 如果基准文件为空，是否继续检查 */
+    /** @var string 如果基准文件为空，是否继续检查（'' 交互式确认 / 'y' 继续检查） */
     public $continuesIfEmpty = '';
+
+    /**
+     * @var bool 是否已完成环境准备（延迟加载，避免 --help 等场景触发重逻辑）
+     */
+    private $prepared = false;
 
     /**
      * {@inheritdoc}
@@ -100,6 +104,20 @@ class MakeController extends ConsoleController
     public function init()
     {
         parent::init();
+    }
+
+    /**
+     * 环境准备：获取数据库表名、扫描模型目录、定位基准文件
+     *
+     * 重逻辑延迟到 action 内执行，避免控制器实例化（含查看 --help）时即连库并扫描模型。
+     * 幂等，可重复调用。
+     *
+     * @return void
+     */
+    private function prepare()
+    {
+        if ($this->prepared) return;
+        $this->prepared = true;
 
         // 获取数据库中的所有表名
         $tables = MysqlHelper::getAllTables();
@@ -220,7 +238,7 @@ class MakeController extends ConsoleController
         $inNamespace = false;
         $inClass     = false;
 
-        foreach ($tokens as $token) {
+        foreach ($tokens as $index => $token) {
             if (is_array($token)) {
                 list($id, $text, $line) = $token;
 
@@ -237,7 +255,13 @@ class MakeController extends ConsoleController
                     }
                 } // 处理类名
                 else if ($id === T_CLASS || $id === T_TRAIT || $id === T_INTERFACE) {
-                    $inClass = true;
+                    // 匿名类（new class）不具备独立类名，跳过避免误取其父类名或成员名
+                    $prev = $index - 1;
+                    while ($prev >= 0 && is_array($tokens[$prev]) && $tokens[$prev][0] === T_WHITESPACE) $prev--;
+                    $isNewClass = ($id === T_CLASS && $prev >= 0 && is_array($tokens[$prev]) && $tokens[$prev][0] === T_NEW);
+                    if (!$isNewClass) {
+                        $inClass = true;
+                    }
                 } else if ($inClass && $id === T_STRING) {
                     $className = $text;
                     break;
@@ -302,12 +326,15 @@ class MakeController extends ConsoleController
      */
     public function actionCheck()
     {
+        $this->prepare();
+
         $tables    = $this->tables_db;
         $addTables = $tables;
         $delTables = [];
 
         set_time_limit(0);
 
+        $schemaFileData = [];
         if (file_exists($this->dbSchemaFile)) {
             $this->stdout('开始获取数据库基准文件...' . PHP_EOL);
             $schemaFileData = @file_get_contents($this->dbSchemaFile);
@@ -453,6 +480,8 @@ class MakeController extends ConsoleController
      */
     public function actionDb(array $dbSchemaContext = [])
     {
+        $this->prepare();
+
         // 删除原本的文件
         if (is_file($this->dbSchemaFile)) unlink($this->dbSchemaFile);
         if (is_file($this->dbInsertFile)) unlink($this->dbInsertFile);

@@ -137,9 +137,8 @@ php yii make/check --generate=y --continues-if-empty=y
 
 ### 设计模式
 
-1. **单例模式** - MysqlHelper 使用静态方法，避免重复实例化
-2. **策略模式** - 支持不同的表结构比较策略
-3. **配置模式** - 灵活的配置选项支持
+1. **静态工具类** - MysqlHelper 全部为静态方法，直接调用无需实例化
+2. **配置模式** - 灵活的配置选项支持（getTableSchema / tableInsertSql 的 options、控制器的可配置属性）
 
 ### 核心算法
 
@@ -181,43 +180,28 @@ php yii make/check --generate=y --continues-if-empty=y
 
 ## 性能优化
 
-### 1. 缓存机制
-
-- 数据库连接缓存
-- 表结构信息缓存
-- 文件扫描结果缓存
-
-### 2. 批量处理
+### 1. 批量处理
 
 - 批量表结构获取
 - 批量 SQL 生成
-- 批量数据插入
+- 批量数据插入（tableInsertSql 支持 batchSize 分批查询）
 
-### 3. 内存管理
+### 2. 流式读取
 
-- 大文件分块处理
-- 及时释放内存
-- 避免内存泄漏
+- tableInsertSql 使用 MySQL 非缓冲查询逐批读取数据，避免大表数据一次性载入内存
 
 ## 扩展性设计
 
-### 1. 插件化架构
+### 1. 配置驱动
 
-- 支持自定义比较策略
-- 支持自定义 SQL 生成器
-- 支持自定义数据处理器
+- 基于配置的功能开关（filterNoModelTable、ignoreTables、insertTables 等）
+- 灵活的目录配置（modelsDir 支持单目录或多目录）
+- 可扩展的选项系统（getTableSchema / tableInsertSql 的 $options）
 
-### 2. 配置驱动
+### 2. 可继承定制
 
-- 基于配置的功能开关
-- 灵活的目录配置
-- 可扩展的选项系统
-
-### 3. 事件系统
-
-- 支持操作前/后事件
-- 支持错误处理事件
-- 支持日志记录事件
+- MakeController 可在应用内继承，覆写属性与方法以定制检查与生成流程
+- MysqlHelper 各方法均为公开静态方法，可单独复用
 
 ## 安全考虑
 
@@ -265,7 +249,7 @@ php yii make/check --generate=y --continues-if-empty=y
 
 - **PHP**: >= 7.2.0 < 8.0.0
 - **Yii2**: >= 2.0.11
-- **jcbase-yii2**: >= 0.30.1
+- **jcbase-yii2**: >= 0.30.3
 
 ### 扩展要求
 

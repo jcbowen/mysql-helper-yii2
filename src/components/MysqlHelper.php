@@ -41,7 +41,9 @@ class MysqlHelper
         $dsnParam = explode(';', $dsn);
         $items    = [];
         foreach ($dsnParam as $item) {
-            $itemArr            = explode('=', $item);
+            // 限制分割次数，防止值中包含等号；无等号的段（如空段、仅键名的段）直接跳过
+            $itemArr = explode('=', $item, 2);
+            if (count($itemArr) < 2) continue;
             $items[$itemArr[0]] = $itemArr[1];
         }
         $data = array_filter($items, function ($key) {
@@ -126,8 +128,11 @@ class MysqlHelper
         ], $options);
         $db      = $options['db'] ?: 'db';
 
-        $tableName = self::tableName($tableName);
-        $result    = Yii::$app->$db->createCommand("SHOW TABLE STATUS LIKE '" . $tableName . "'")->queryOne();
+        $tableName = self::tableName($tableName, $db);
+
+        // LIKE 中 _ 和 % 是通配符，需要转义以保证精确匹配目标表
+        $likeName = str_replace(['\\', '_', '%'], ['\\\\', '\\_', '\\%'], $tableName);
+        $result   = Yii::$app->$db->createCommand("SHOW TABLE STATUS LIKE '" . $likeName . "'")->queryOne();
         if (empty($result)) return [];
         $ret              = [];
         $ret['tableName'] = $result['Name'];
@@ -139,7 +144,7 @@ class MysqlHelper
         if ($options['resetTableIncrement'] && !empty($ret['increment']))
             $ret['increment'] = 1;
 
-        $result = Yii::$app->$db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
+        $result = Yii::$app->$db->createCommand('SHOW FULL COLUMNS FROM `' . $tableName . '`')->queryAll();
         foreach ($result as $value) {
             $temp           = [];
             $type           = explode(' ', $value['Type'], 2);
@@ -154,7 +159,7 @@ class MysqlHelper
             if ($getComment) $temp['comment'] = !empty($value['Comment']) ? base64_encode($value['Comment']) : '';
             $ret['fields'][$value['Field']] = $temp;
         }
-        $result = Yii::$app->$db->createCommand('SHOW INDEX FROM ' . $tableName)->queryAll();
+        $result = Yii::$app->$db->createCommand('SHOW INDEX FROM `' . $tableName . '`')->queryAll();
         foreach ($result as $value) {
             $ret['indexes'][$value['Key_name']]['name']     = $value['Key_name'];
             $ret['indexes'][$value['Key_name']]['type']     = ('PRIMARY' == $value['Key_name']) ? 'primary' : (0 == $value['Non_unique'] ? 'unique' : 'index');
@@ -265,6 +270,7 @@ class MysqlHelper
     public static function schemaCompare(array $table1, array $table2): array
     {
         $ret['diffs']['charset'] = $table1['charset'] != $table2['charset'];
+        $ret['diffs']['engine']  = ($table1['engine'] ?? '') != ($table2['engine'] ?? '');
 
         $fields1 = array_keys($table1['fields']);
         $fields2 = array_keys($table2['fields']);
@@ -320,7 +326,7 @@ class MysqlHelper
      *
      * @param array $schema1 表1的结构,需要修复的表
      * @param array $schema2 表2的结构,基准表
-     * @param bool  $strict  使用严格模式, 严格模式将会把表2完全变成表1的结构, 否则将只处理表2种大于表1的内容(多出的字段和索引)
+     * @param bool  $strict  使用严格模式, 严格模式将会把表1完全变成表2的结构(含删除表1中多出的字段和索引), 否则将只处理表1中缺失或与表2不一致的内容
      *
      * @return array
      * @lasttime: 2022/4/2 11:08 PM
@@ -334,10 +340,7 @@ class MysqlHelper
             if (!$strict) return [];
             return [self::makeDropSql(self::tableName($schema1['tableName']))];
         }
-        $diff = self::schemaCompare($schema1, $schema2);
-        if (!empty($diff['diffs']['tableName'])) {
-            return [self::makeCreateSql($schema2)];
-        }
+        $diff   = self::schemaCompare($schema1, $schema2);
         $sqlArr = [];
         if (!empty($diff['diffs']['engine'])) {
             $sqlArr[] = "ALTER TABLE `{$schema1['tableName']}` ENGINE = {$schema2['engine']}";
@@ -370,9 +373,9 @@ class MysqlHelper
                     if (strpos($sql, 'AUTO_INCREMENT') !== false) {
                         $isIncrement = $field;
                         $sql         = str_replace('AUTO_INCREMENT', '', $sql);
-                        foreach ($schema1['fields'] as $field) {
-                            if (1 == $field['increment']) {
-                                $primary = $field;
+                        foreach ($schema1['fields'] as $field1) {
+                            if (1 == $field1['increment']) {
+                                $primary = $field1;
                                 break;
                             }
                         }
@@ -476,14 +479,25 @@ class MysqlHelper
         if (false !== strpos(strtolower($field['type']), 'int') || in_array(strtolower($field['type']), [
                 'decimal',
                 'float',
-                'dobule'
+                'double'
             ])) {
             $signed = empty($field['signed']) ? ' unsigned' : '';
         } else {
             $signed = '';
         }
-        $null      = empty($field['null']) ? ' NOT NULL' : '';
-        $default   = isset($field['default']) ? " DEFAULT '" . $field['default'] . "'" : '';
+        $null    = empty($field['null']) ? ' NOT NULL' : '';
+        $default = '';
+        if (array_key_exists('default', $field)) {
+            if ($field['default'] === null || strcasecmp((string)$field['default'], 'NULL') === 0) {
+                // NULL 默认值
+                $default = ' DEFAULT NULL';
+            } elseif (preg_match('/^CURRENT_TIMESTAMP(?:\(\d*\))?$/i', (string)$field['default'])) {
+                // MySQL 函数默认值不加引号，否则会生成字符串字面量而非函数语义
+                $default = ' DEFAULT ' . $field['default'];
+            } else {
+                $default = " DEFAULT '" . $field['default'] . "'";
+            }
+        }
         $increment = $field['increment'] ? ' AUTO_INCREMENT' : '';
         $comment   = '';
         if (!empty($field['comment'])) {
@@ -520,8 +534,8 @@ class MysqlHelper
     {
         $tableName = self::tableName($tableName);
 
-        $dump = "DROP TABLE IF EXISTS $tableName;\n";
-        $sql  = "SHOW CREATE TABLE $tableName";
+        $dump = "DROP TABLE IF EXISTS `{$tableName}`;\n";
+        $sql  = "SHOW CREATE TABLE `{$tableName}`";
         $row  = Yii::$app->$db->createCommand($sql)->queryOne();
         $dump .= $row['Create Table'];
         $dump .= ";\n\n";
@@ -568,7 +582,7 @@ class MysqlHelper
         $valueTmp  = '';
 
         // 获取字段名
-        $columns = $db->createCommand('SHOW FULL COLUMNS FROM ' . $tableName)->queryAll();
+        $columns = $db->createCommand('SHOW FULL COLUMNS FROM `' . $tableName . '`')->queryAll();
         foreach ($columns as $column) $filedTmp[] = "`{$column['Field']}`";
 
         if (empty($filedTmp)) return false;
@@ -581,34 +595,38 @@ class MysqlHelper
             $query = call_user_func($options['getInsertDataQuery'], $query);
 
         $db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
-        foreach ($query->each($options['batchSize'], $db) as $row) {
-            $data[]   = $row;
-            $valueTmp .= '(';
-            foreach ($row as $v) {
-                if ($v === null) {
-                    $valueTmp .= "NULL,";
-                } else {
-                    $value    = str_replace(
-                        array('\\', "\0", "\n", "\r", "'", '"', "\x1a"),
-                        array('\\\\', '\\0', '\\n', '\\r', "\\'", '\\"', '\\Z'),
-                        $v
-                    );
-                    $valueTmp .= "'" . $value . "',";
+        try {
+            foreach ($query->each($options['batchSize'], $db) as $row) {
+                $data[]   = $row;
+                $valueTmp .= '(';
+                foreach ($row as $v) {
+                    if ($v === null) {
+                        $valueTmp .= "NULL,";
+                    } else {
+                        $value    = str_replace(
+                            array('\\', "\0", "\n", "\r", "'", '"', "\x1a"),
+                            array('\\\\', '\\0', '\\n', '\\r', "\\'", '\\"', '\\Z'),
+                            $v
+                        );
+                        $valueTmp .= "'" . $value . "',";
+                    }
                 }
+                $valueTmp = rtrim($valueTmp, ',');
+                $valueTmp .= "),\n";
             }
-            $valueTmp = rtrim($valueTmp, ',');
-            $valueTmp .= "),\n";
+        } finally {
+            // 无论遍历是否抛异常，都必须恢复缓冲查询，否则同一连接的后续查询全部失败
+            $db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
         }
-        $db->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
 
         if (empty($data))
             return false;
 
         $valueTmp = rtrim($valueTmp, ",\n");
-        if ($options['truncate']) $insertSql .= "TRUNCATE TABLE $tableName;\n";
+        if ($options['truncate']) $insertSql .= "TRUNCATE TABLE `{$tableName}`;\n";
         $insertSql .= "INSERT ";
         if ($options['ignore']) $insertSql .= "IGNORE ";
-        $insertSql .= "INTO $tableName (" . implode(',', $filedTmp) . ") VALUES \n$valueTmp;\n";
+        $insertSql .= "INTO `{$tableName}` (" . implode(',', $filedTmp) . ") VALUES \n$valueTmp;\n";
 
         return [
             'sql'  => $insertSql,

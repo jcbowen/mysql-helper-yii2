@@ -17,9 +17,9 @@
 
 ## 系统要求
 
-- PHP >= 7.2.0
+- PHP >= 7.2.0 < 8.0.0
 - Yii2 >= 2.0.11
-- jcbase-yii2 >= 0.28.0
+- jcbase-yii2 >= 0.30.3
 
 ## 安装
 
@@ -278,7 +278,7 @@ php yii make/db
 
 - [基本使用示例](examples/basic_usage.php) - PHP 代码使用示例
 - [命令行使用示例](examples/console_usage.md) - 命令行工具使用指南
-- [项目功能概览](项目功能概览.md) - 详细的功能和架构说明
+- [项目功能概览](PROJECT_OVERVIEW.md) - 详细的功能和架构说明
 
 ## 贡献
 
