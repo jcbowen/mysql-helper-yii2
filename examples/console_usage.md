@@ -8,11 +8,14 @@
 # 基本检查（交互模式）
 php yii make/check
 
-# 非交互模式
+# 非交互模式（存在差异时直接重新生成基准文件）
 php yii make/check --generate=y --continues-if-empty=y
 
 # 简写形式
 php yii make/check -g y -c y
+
+# 显示详细列表（无model表清单等，默认仅显示数量避免大项目刷屏）
+php yii make/check -v y
 ```
 
 ### 2. 生成数据库基准文件
@@ -33,13 +36,13 @@ class MakeController extends \Jcbowen\MysqlHelperYii2\controllers\MakeController
 {
     // 是否过滤没有数据模型的表
     public $filterNoModelTable = false;
-    
-    // 不跟踪的表名
+
+    // 不跟踪的表名（同时匹配去前缀名与完整表名，如模型写死 sl_client_version，配置写 client_version 或 sl_client_version 均生效）
     public $ignoreTables = ['migration', 'cache', 'session'];
-    
+
     // 数据库基准文件所在目录
     public $dir = '@console/runtime/update/db';
-    
+
     // 模型所在目录（单目录）
     public $modelsDir = '@common/models';
 }
@@ -139,40 +142,58 @@ php yii make/check
 
 ### 检查命令输出
 
+结构一致的表静默处理；无model表、基准缺失表等分类统计在对比完成后输出；存在结构差异的表聚合到末尾汇总区，逐表输出「差异明细 + 修复SQL」：
+
 ```
+正在连接数据库并扫描模型目录...
 开始获取数据库基准文件...
 开始与基准数据对比...
-对比【user】结果：结构一致，无需修复
-对比【order】结果：需要修复
-对比【product】结果：结构一致，无需修复
-
-对比完成，共计1张表需要处理
-Done：所有表都生成了model
+对比中 [123/184] sl_order        ← 终端（TTY）下单行进度刷新，管道/CI 自动隐藏
+【jc_order】需要修复
+对比完成，需要处理2张表（结构差异1 + 基准缺失1 + 已删除0）
+有13张表没有生成model（--verbose=y 可查看列表）
 Done：没有删除表
-Done：没有新增表
-修复sql语句如下：
-【order】
-ALTER TABLE `jc_order` ADD `status` varchar(20) NOT NULL DEFAULT 'pending' COMMENT '订单状态';
+基准文件中缺少1张表：
+jc_setting
+另有13张无model的表未纳入基准（已按 filterNoModelTable 配置忽略）
+
+── 以下 1 张表存在结构差异（基准文件 → 当前数据库）──
+
+【jc_order】
+  [字段新增] status（仅当前库存在）
+  修复SQL：
+    ALTER TABLE `jc_order` ADD `status` varchar(20) NOT NULL DEFAULT 'pending' COMMENT '订单状态';
 
 存在差异，是否生成新的基准文件？[Y/N]
 ```
 
+**输出说明：**
+
+- 「正在连接数据库并扫描模型目录...」为准备阶段提示，避免慢库/大模型目录时被误认为卡死
+- 「对比中 [i/N]」为单行进度（\r 覆盖刷新），仅在真实终端显示；管道重定向、CI、git hooks 等非终端环境自动隐藏，失败与差异明细始终输出
+- 「需要处理N张表」仅统计真实信号：结构差异 + 基准缺失 + 已删除，不含无model表
+- 「没有生成model」默认仅显示数量，加 `-v y` / `--verbose=y` 展开列表
+- 「基准文件中缺少N张表」为基准落后于数据库的表（有model），是重新生成基准文件的主要信号；若 `filterNoModelTable=true`，无model表的缺失会单独归入「未纳入基准」提示
+- 「结构差异」汇总区方向统一为「基准文件 → 当前数据库」，便于判断差异是否应当被接纳（重新生成基准文件）
+
 ### 生成命令输出
+
+默认模式逐表「成功」输出收敛为单行进度，完成时输出汇总统计；`-v y` 恢复逐表输出：
 
 ```
 开始执行数据表基准文件生成
-获取【user】表结构：成功
-获取【order】表结构：成功
-获取【product】表结构：成功
-所有表结构获取成功，正在生成基准文件
+获取表结构 [123/184] sl_order    ← 终端（TTY）下单行进度刷新
 数据表结构基准文件生成成功！
-
-获取【user】表insert语句：成功
-获取【setting】表insert语句：成功
-所有insert语句获取成功，正在生成基准文件
 数据表insert语句基准文件生成成功！
-
+表结构获取完成：成功184张
+insert语句获取完成：成功7张
 执行完毕
+```
+
+若从 `make/check` 的确认流程进入（存在差异并选择重新生成），对比阶段已获取过的表结构会直接复用，汇总中体现为「复用上下文N张」：
+
+```
+表结构获取完成：成功14张（其中复用上下文170张）
 ```
 
 ## 错误处理

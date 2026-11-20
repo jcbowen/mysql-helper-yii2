@@ -147,7 +147,7 @@ class MakeController extends \Jcbowen\MysqlHelperYii2\controllers\MakeController
     public $filterNoModelTable = false;
     
     /**
-     * 不跟踪的表名
+     * 不跟踪的表名（同时匹配去前缀名与完整表名：模型写死 sl_client_version 时，配置 client_version 或 sl_client_version 均生效）
      */
     public $ignoreTables = ['migration', 'cache'];
     
@@ -249,7 +249,18 @@ php yii make/check --generate=y --continues-if-empty=y
 
 # 简写形式
 php yii make/check -g y -c y
+
+# 显示详细列表（无model表清单等，默认仅显示数量避免大项目刷屏）
+php yii make/check -v y
 ```
+
+选项说明：
+
+| 选项 | 简写 | 说明 |
+|------|------|------|
+| `--generate` | `-g` | 检查完毕，如果存在差异，是否生成基准文件（`y` 跳过交互直接生成） |
+| `--continues-if-empty` | `-c` | 如果基准文件为空，是否继续检查（`y` 跳过交互继续检查） |
+| `--verbose` | `-v` | 是否显示详细列表（无model表清单等） |
 
 ### make/db 命令
 
@@ -333,6 +344,11 @@ node scripts/release.mjs v0.5.14 --dry-run
 ## 更新日志
 
 ### v0.x-dev
+- 🐛 修复 `-c` / `--continues-if-empty` 选项导致 `Getting unknown property` 崩溃的问题（options/optionAliases 统一返回驼峰属性名）
+- ✨ `make/check` 输出优化：统计口径修正为真实待处理量（结构差异 + 基准缺失 + 已删除）；「基准缺失」拆分有model表（真信号）与无model表（已过滤，仅提示数量），无model表列表默认隐藏，`-v` 展示
+- ✨ `make/check` / `make/db` 新增单行进度显示（\r 覆盖刷新），仅在真实终端显示，管道/CI/git hooks 自动隐藏；`make/db` 逐表「成功」输出默认收敛，`-v` 恢复；`make/db` 完成时输出汇总统计（成功/失败/复用上下文张数）
+- ✨ 新增 `-v` / `--verbose` 选项
+- 🐛 修复 `ignoreTables` 无法匹配写死完整表名（含前缀）模型的问题，现同时匹配去前缀名与完整表名
 - ✨ 新增多模型目录支持功能
 - 🔧 优化表结构扫描逻辑
 - 📝 完善文档和注释

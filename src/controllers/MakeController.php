@@ -92,11 +92,23 @@ class MakeController extends ConsoleController
     public $generate = '';
     /** @var string 如果基准文件为空，是否继续检查（'' 交互式确认 / 'y' 继续检查） */
     public $continuesIfEmpty = '';
+    /** @var string 是否显示详细列表（无model表清单等）（'y' 显示，默认仅显示数量，避免大项目刷屏） */
+    public $verbose = '';
 
     /**
      * @var bool 是否已完成环境准备（延迟加载，避免 --help 等场景触发重逻辑）
      */
     private $prepared = false;
+
+    /**
+     * @var bool|null STDOUT 是否为 TTY（终端）。null 表示尚未检测（延迟缓存）
+     */
+    private $isTty = null;
+
+    /**
+     * @var int 最近一次单行进度输出的字符宽度，用于 clearProgress 时清除残留
+     */
+    private $progressWidth = 0;
 
     /**
      * {@inheritdoc}
@@ -118,6 +130,9 @@ class MakeController extends ConsoleController
     {
         if ($this->prepared) return;
         $this->prepared = true;
+
+        // 连库与扫描模型目录耗时较长（慢库/大模型目录可达数秒），先给出提示避免被误认为卡死
+        $this->stdout('正在连接数据库并扫描模型目录...' . PHP_EOL);
 
         // 获取数据库中的所有表名
         $tables = MysqlHelper::getAllTables();
@@ -185,7 +200,15 @@ class MakeController extends ConsoleController
                             }
 
                             // 检查是否在忽略列表中
-                            if (!in_array($tableName, $this->ignoreTables)) {
+                            // 双口径匹配：模型若写死完整表名（含前缀），配置里写去前缀名也应生效；
+                            // 反之模型返回 {{%xxx}} 格式（去前缀名）时，配置写完整表名也应生效
+                            $ignoreList  = array_map(function ($v) {
+                                return (string)$v;
+                            }, $this->ignoreTables);
+                            $prefixFree  = MysqlHelper::removeTablePrefix($tableName);
+                            $isIgnored   = in_array($tableName, $ignoreList)
+                                           || in_array($prefixFree, $ignoreList);
+                            if (!$isIgnored) {
                                 // 将模型表名转换为完整表名（MysqlHelper::tableName会自动处理前缀）
                                 $fullTableName = MysqlHelper::tableName($tableName);
                                 $tables[]      = $fullTableName;
@@ -215,6 +238,69 @@ class MakeController extends ConsoleController
 
         $this->dbSchemaFile = $this->dir . '/db_schema.txt';
         $this->dbInsertFile = $this->dir . '/db_insert.sql';
+    }
+
+    /**
+     * 检测 STDOUT 是否为 TTY（终端），结果缓存
+     *
+     * 非终端环境（管道重定向、CI、git hooks）下单行进度（\r 覆盖）会污染日志，
+     * 各进度方法据此自动降级为普通输出。
+     *
+     * @author  Bowen
+     * @email   bowen@jiuchet.com
+     *
+     * @return bool true 表示输出到真实终端
+     */
+    private function isTty(): bool
+    {
+        if ($this->isTty === null) {
+            $this->isTty = function_exists('stream_isatty') && @stream_isatty(STDOUT);
+        }
+        return $this->isTty;
+    }
+
+    /**
+     * 输出单行进度（\r 覆盖刷新），仅 TTY 终端生效
+     *
+     * 非终端环境静默跳过（阶段开始/结束已有普通输出兜底）。
+     * 跨平台说明：\r 回车覆盖在 Windows cmd/PowerShell 与 macOS/Linux 终端均原生支持，
+     * 不使用 ANSI 转义（旧版 Windows cmd 可能未启用 VT 序列），残留字符用空格填充清除。
+     *
+     * @author  Bowen
+     * @email   bowen@jiuchet.com
+     *
+     * @param int    $current 当前序号（从 1 开始）
+     * @param int    $total   总数
+     * @param string $label   阶段描述，如 '对比中'、'获取表结构'
+     * @param string $detail  可选的当前处理对象名（如表名）
+     *
+     * @return void
+     */
+    private function showProgress(int $current, int $total, string $label, string $detail = ''): void
+    {
+        if (!$this->isTty()) return;
+        $text = sprintf('%s [%d/%d]', $label, $current, $total);
+        if ($detail !== '') $text .= " {$detail}";
+        $this->progressWidth = strlen($text);
+        $this->stdout("\r{$text}");
+    }
+
+    /**
+     * 清除当前单行进度（\r + 空格填充覆盖后回到行首），仅 TTY 终端生效
+     *
+     * 用于进度循环结束后清行，或在进度行上输出差异/错误明细前断行。
+     * 填充宽度取最近进度行宽度 + 冗余（表名变短时旧行可能更长），多填的空格无视觉影响。
+     *
+     * @author  Bowen
+     * @email   bowen@jiuchet.com
+     *
+     * @return void
+     */
+    private function clearProgress(): void
+    {
+        if (!$this->isTty() || $this->progressWidth === 0) return;
+        $this->stdout("\r" . str_repeat(' ', $this->progressWidth + 40) . "\r");
+        $this->progressWidth = 0;
     }
 
     /**
@@ -294,24 +380,37 @@ class MakeController extends ConsoleController
 
     /**
      * {@inheritdoc}
+     *
+     * 注意：必须返回驼峰形式的属性名（如 continuesIfEmpty），而非 kebab 形式。
+     * Yii2 在解析命令行时会把 kebab-case 输入（--continues-if-empty）自动转为驼峰后
+     * 与此处的返回值匹配，并直接以属性名访问控制器；若此处返回 kebab 形式，
+     * 会导致 Getting unknown property 异常（v0.5.x 实测 bug）。
+     *
+     * 使用示例：
+     * - php yii make/check --generate=y --continues-if-empty=y
+     * - php yii make/check -g y -c y        （optionAliases 简写）
+     * - php yii make/check --verbose=y      （显示无model表等详细列表）
      */
     public function options($actionID): array
     {
-        return [
+        return array_merge(parent::options($actionID), [
             'generate',
-            'continues-if-empty',
-            'help'
-        ];
+            'continuesIfEmpty',
+            'verbose',
+        ]);
     }
 
     /**
      * {@inheritdoc}
+     *
+     * 返回值同样必须使用驼峰属性名，原因同 options()。
      */
     public function optionAliases(): array
     {
         return [
             'g' => 'generate',
-            'c' => 'continues-if-empty',
+            'c' => 'continuesIfEmpty',
+            'v' => 'verbose',
             'h' => 'help',
         ];
     }
@@ -512,7 +611,13 @@ class MakeController extends ConsoleController
         // 根据基准文件进行数据对比
         if (!empty($schemaFileData)) {
             $this->stdout('开始与基准数据对比...' . PHP_EOL);
+            $compareIndex = 0;
+            $compareTotal = count($schemaFileData);
             foreach ($schemaFileData as $table => $data) {
+                $compareIndex++;
+                // 单行进度：慢库下逐表查询可达数秒，让用户知道进行到哪了
+                $this->showProgress($compareIndex, $compareTotal, '对比中', $table);
+
                 // 兼容性处理：如果基准文件中的表名不包含前缀，则转换为完整表名
                 $fullTableName = $table;
                 if (!in_array($table, $this->tables_db)) {
@@ -543,6 +648,8 @@ class MakeController extends ConsoleController
                         }
                     }
                 } catch (Exception $e) {
+                    // 清掉进度行再输出错误明细，避免错误信息与进度行混在一行
+                    $this->clearProgress();
                     $this->stdout("获取 {$fullTableName} 表结构失败" . PHP_EOL, Console::FG_RED);
                     $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
                     $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
@@ -554,9 +661,11 @@ class MakeController extends ConsoleController
                     $fixSql[$fullTableName] = $allSql;
                     // 结构一致的表静默处理，差异明细聚合到末尾汇总区统一输出，避免刷屏
                     $diffDetails[$fullTableName] = $this->formatSchemaDiff($data, $locDbs[$fullTableName]);
+                    $this->clearProgress();
                     $this->stdout("【{$fullTableName}】需要修复" . PHP_EOL, Console::FG_BLUE);
                 }
             }
+            $this->clearProgress();
         } else {
             $this->stdout('基准文件不存在，跳过对比' . PHP_EOL, Console::FG_YELLOW);
         }
@@ -565,29 +674,47 @@ class MakeController extends ConsoleController
         $noModelTables = array_filter($this->tables_db, function ($v) {
             return !in_array($v, $this->tables_model);
         });
-        $count         = count($fixSql); // 需要修复的表
-        $countAdd      = count($addTables); // 新增表
-        $countDel      = count($delTables); // 删除表
-        $countNoModel  = count($noModelTables); // 没有生成model的表
-        $this->stdout('对比完成，共计' . ($count + $countAdd + $countDel) . '张表需要处理' . PHP_EOL, Console::FG_BLUE);
+
+        // 基准文件中缺失的表（数据库有、基准文件没有）拆分两类，避免无model表淹没真正需要关注的信号：
+        // - 基准缺失且有model：基准落后，真正需要重新生成基准文件的表
+        // - 基准缺失且无model：filterNoModelTable=true 时生成基准文件会主动跳过这些表，属正常现象
+        $addNoModel = $this->filterNoModelTable
+            ? array_values(array_filter($addTables, function ($v) use ($noModelTables) {
+                return in_array($v, $noModelTables);
+            }))
+            : [];
+        $addWithModel = array_values(array_diff($addTables, $addNoModel));
+
+        $count           = count($fixSql);        // 结构差异需要修复的表
+        $countAdd        = count($addWithModel);  // 基准文件缺失（filterNoModelTable=false 时含无model表）
+        $countAddNoModel = count($addNoModel);    // 基准文件缺失且无model的表（已被过滤，属正常）
+        $countDel        = count($delTables);     // 基准文件有但数据库已删除的表
+        $countNoModel    = count($noModelTables); // 没有生成model的表
+        $countNeed       = $count + $countAdd + $countDel;
+        $showVerbose     = strtolower($this->verbose) === 'y';
+        $this->stdout("对比完成，需要处理{$countNeed}张表（结构差异{$count} + 基准缺失{$countAdd} + 已删除{$countDel}）" . PHP_EOL, Console::FG_BLUE);
 
         if (!empty($countNoModel)) {
-            $this->stdout("有{$countNoModel}张表没有生成model：" . PHP_EOL, Console::FG_BLUE);
-            $this->stdout(implode(PHP_EOL, $noModelTables) . PHP_EOL);
+            // 无model表默认只报数量：大项目中可达数百张，且与基准缺失表高度重叠，全量输出会刷屏
+            $this->stdout("有{$countNoModel}张表没有生成model" .
+                ($showVerbose ? "：" . PHP_EOL . implode(PHP_EOL, $noModelTables) . PHP_EOL : '（--verbose=y 可查看列表）') . PHP_EOL, Console::FG_BLUE);
         } else {
             $this->stdout('Done：所有表都生成了model' . PHP_EOL, Console::FG_GREEN);
         }
         if (!empty($countDel)) {
-            $this->stdout("删除了{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
+            $this->stdout("基准文件中存在但数据库已删除{$countDel}张表：" . PHP_EOL, Console::FG_YELLOW);
             $this->stdout(implode(PHP_EOL, $delTables) . PHP_EOL);
         } else {
             $this->stdout('Done：没有删除表' . PHP_EOL, Console::FG_GREEN);
         }
         if (!empty($countAdd)) {
-            $this->stdout("新增了{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
-            $this->stdout(implode(PHP_EOL, $addTables) . PHP_EOL);
+            $this->stdout("基准文件中缺少{$countAdd}张表：" . PHP_EOL, Console::FG_BLUE);
+            $this->stdout(implode(PHP_EOL, $addWithModel) . PHP_EOL);
         } else {
-            $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
+            $this->stdout('Done：没有缺少基准的表' . PHP_EOL, Console::FG_GREEN);
+        }
+        if (!empty($countAddNoModel)) {
+            $this->stdout("另有{$countAddNoModel}张无model的表未纳入基准（已按 filterNoModelTable 配置忽略）" . PHP_EOL, Console::FG_YELLOW);
         }
         if (!empty($count)) {
             $this->stdout(PHP_EOL . "── 以下 {$count} 张表存在结构差异（基准文件 → 当前数据库）──" . PHP_EOL, Console::FG_BLUE);
@@ -658,29 +785,59 @@ class MakeController extends ConsoleController
         // 根据传入参数决定是否只遍历处理有模型的表
         $tables = $this->filterNoModelTable ? $filterNoModelTable : $this->tables_db;
 
-        $dbSchema = [];
+        // verbose 模式下保持旧的逐表「成功/失败」输出；默认输出单行进度，避免大项目数百行刷屏
+        $showVerbose = strtolower($this->verbose) === 'y';
+
+        $dbSchema      = [];
+        $schemaOk      = 0;  // 成功获取的表数
+        $schemaFail    = 0;  // 获取失败的表数
+        $schemaContext = 0;  // 复用上下文表结构的表数
+        $schemaTotal   = count($tables);
+        $schemaIndex   = 0;
         foreach ($tables as $table) {
+            $schemaIndex++;
             // 存储到基准文件时，表名键名去除前缀，保持原有约定
             $schemaKey = MysqlHelper::removeTablePrefix($table);
             if (!empty($dbSchemaContext[$table])) {
                 $dbSchema[$schemaKey] = $dbSchemaContext[$table];
+                $schemaContext++;
+                if ($showVerbose) {
+                    $this->stdout("获取【{$table}】表结构：复用上下文" . PHP_EOL, Console::FG_BLUE);
+                } else {
+                    $this->showProgress($schemaIndex, $schemaTotal, '获取表结构', "{$table}（复用上下文）");
+                }
             } else {
-                try {
+                if ($showVerbose) {
                     $this->stdout('获取【' . $table . '】表结构：');
+                } else {
+                    $this->showProgress($schemaIndex, $schemaTotal, '获取表结构', $table);
+                }
+                try {
                     $dbSchema[$schemaKey] = MysqlHelper::getTableSchema($table, true, true, [
                         'resetTableIncrement' => true
                     ]);
                 } catch (Exception $e) {
-                    $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
+                    if ($showVerbose) $this->stdout('失败' . PHP_EOL, Console::FG_RED);
+                    else $this->clearProgress();
+                    $this->stdout("获取【{$table}】表结构失败: {$e->getMessage()}" . PHP_EOL, Console::FG_RED);
+                    $schemaFail++;
                     continue;
                 }
                 if (empty($dbSchema[$schemaKey])) {
-                    $this->stdout('失败' . PHP_EOL, Console::FG_RED);
+                    if ($showVerbose) $this->stdout('失败' . PHP_EOL, Console::FG_RED);
+                    else $this->clearProgress();
+                    $this->stdout("获取【{$table}】表结构失败: 返回空结构" . PHP_EOL, Console::FG_RED);
+                    $schemaFail++;
                     continue;
                 }
-                $this->stdout('成功' . PHP_EOL, Console::FG_GREEN);
+                if ($showVerbose) {
+                    $this->stdout('成功' . PHP_EOL, Console::FG_GREEN);
+                }
+                $schemaOk++;
             }
         }
+        if (!$showVerbose) $this->clearProgress();
+
         if (!empty($dbSchema)) {
             $this->stdout('所有表结构获取成功，正在生成基准文件' . PHP_EOL, Console::FG_BLUE);
             $res = file_put_contents($this->dbSchemaFile, serialize($dbSchema));
@@ -694,24 +851,43 @@ class MakeController extends ConsoleController
         }
 
         $dbInsertSql = [];
+        $insertOk    = 0; // 成功获取insert的表数
+        $insertFail  = 0; // 获取失败的表数
+        $insertTotal = count($this->insertTables);
+        $insertIndex = 0;
         foreach ($this->insertTables as $insertTable => $option) {
+            $insertIndex++;
             // 统一转换为完整表名（包含前缀）用于显示与索引，保持与数据库一致
             $fullInsertTableName = MysqlHelper::tableName($insertTable);
-            $this->stdout('获取【' . $fullInsertTableName . '】表insert语句：');
+            if ($showVerbose) {
+                $this->stdout('获取【' . $fullInsertTableName . '】表insert语句：');
+            } else {
+                $this->showProgress($insertIndex, $insertTotal, '获取insert语句', $fullInsertTableName);
+            }
             try {
                 $data = MysqlHelper::tableInsertSql($insertTable, $option);
             } catch (Exception $e) {
-                $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
+                if ($showVerbose) $this->stdout('失败' . PHP_EOL, Console::FG_RED);
+                else $this->clearProgress();
+                $this->stdout("获取【{$fullInsertTableName}】insert语句失败: {$e->getMessage()}" . PHP_EOL, Console::FG_RED);
+                $insertFail++;
                 continue;
             }
             if (empty($data)) {
-                $this->stdout('失败' . PHP_EOL, Console::FG_RED);
+                if ($showVerbose) $this->stdout('失败' . PHP_EOL, Console::FG_RED);
+                else $this->clearProgress();
+                $this->stdout("获取【{$fullInsertTableName}】insert语句失败: 无数据" . PHP_EOL, Console::FG_RED);
+                $insertFail++;
                 continue;
+            }
+            if ($showVerbose) {
+                $this->stdout('成功' . PHP_EOL, Console::FG_GREEN);
             }
             // 使用完整表名作为索引键，便于阅读与一致性
             $dbInsertSql[$fullInsertTableName] = $data['sql'];
-            $this->stdout('成功' . PHP_EOL, Console::FG_GREEN);
+            $insertOk++;
         }
+        if (!$showVerbose && !empty($this->insertTables)) $this->clearProgress();
         if (!empty($dbInsertSql)) {
             $this->stdout('所有insert语句获取成功，正在生成基准文件' . PHP_EOL, Console::FG_BLUE);
             $res = file_put_contents($this->dbInsertFile, implode("\n-- --------------------------------------------------------\n\n", $dbInsertSql));
@@ -722,6 +898,19 @@ class MakeController extends ConsoleController
             }
         } else {
             $this->stdout('没有需要生成的insert基准表数据' . PHP_EOL, Console::FG_YELLOW, Console::UNDERLINE);
+        }
+
+        // 汇总统计：无论 TTY 还是管道模式都输出，便于快速判断本次生成的整体结果
+        if (!empty($schemaTotal)) {
+            $summary = "表结构获取完成：成功{$schemaOk}张";
+            if ($schemaContext > 0) $summary .= "（其中复用上下文{$schemaContext}张）";
+            if ($schemaFail > 0) $summary .= "，失败{$schemaFail}张";
+            $this->stdout($summary . PHP_EOL, $schemaFail > 0 ? Console::FG_YELLOW : Console::FG_GREEN);
+        }
+        if (!empty($insertTotal)) {
+            $summary = "insert语句获取完成：成功{$insertOk}张";
+            if ($insertFail > 0) $summary .= "，失败{$insertFail}张";
+            $this->stdout($summary . PHP_EOL, $insertFail > 0 ? Console::FG_YELLOW : Console::FG_GREEN);
         }
 
         $this->stdout('执行完毕' . PHP_EOL, Console::FG_BLUE);
