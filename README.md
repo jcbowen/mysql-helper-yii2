@@ -280,6 +280,44 @@ php yii make/db
 - [命令行使用示例](examples/console_usage.md) - 命令行工具使用指南
 - [项目功能概览](PROJECT_OVERVIEW.md) - 详细的功能和架构说明
 
+## 发版流程
+
+发版脚本（`scripts/release.mjs`，方案参考 jcbaseGo）：打 `vX.Y.Z` 轻量 tag 并（可选）推送 origin，Packagist 自动同步新版本。
+
+流程：选择版本（patch/minor/major × 正式/-alpha/-beta/-rc 两步菜单，或手动输入）→ 轻量门禁（php -l 检查 src + examples 全部文件 + composer validate --strict）→ 打 tag → 交互询问是否推送（默认推送，Esc/取消 = 仅保留本地）。
+
+### VSCode 任务（推荐入口）
+
+| 任务 | 说明 |
+|------|------|
+| 发版（打 tag / 交互选择是否推送） | 版本号留空时终端交互选择 |
+| 发版演练（--dry-run） | 门禁照跑，tag 与推送只打印不执行 |
+| 只跑发版门禁（--check） | 发版前单独自检，不创建 tag、不推送 |
+
+### 终端用法
+
+```bash
+# 全交互发版（版本号留空时菜单选择）
+node scripts/release.mjs
+
+# 显式版本号（仍会询问是否推送）
+node scripts/release.mjs v0.5.14
+
+# 只跑门禁
+node scripts/release.mjs --check
+
+# 演练：门禁照跑，tag/推送只打印不执行
+node scripts/release.mjs v0.5.14 --dry-run
+```
+
+### 口径说明
+
+- 同一 core 版本号（vX.Y.Z）只允许出现一次（正式版或某个预发布阶段）；
+- 历史 tag 兼容两位版本号（如 v0.2、v0.5），但新发版必须三位；
+- 工作区有未提交改动时警告（不阻断）：tag 指向 HEAD，未提交改动不进入发版内容；
+- 本地同名 tag 已存在且指向 HEAD 时视为上次未完成的发布，复用不重建；指向其他提交则报错；
+- 非交互终端（CI/管道）未显式给版本号时报错并列出候选，不会隐式取默认。
+
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request 来改进这个项目。
