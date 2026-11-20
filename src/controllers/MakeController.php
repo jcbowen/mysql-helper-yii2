@@ -317,6 +317,158 @@ class MakeController extends ConsoleController
     }
 
     /**
+     * 格式化两个表结构的差异明细，用于终端输出
+     *
+     * 方向统一为：$baseSchema（基准文件结构）→ $currentSchema（当前数据库结构）。
+     * 仅列出存在差异的项；字段修改逐属性对比；comment（base64）解码后输出明文；
+     * int 系列类型忽略 length 差异（与 MysqlHelper::schemaCompare 的比较口径一致）。
+     *
+     * @author  Bowen
+     * @email   bowen@jiuchet.com
+     *
+     * @param array $baseSchema    基准文件中的表结构
+     * @param array $currentSchema 当前数据库中的表结构
+     *
+     * @return array 差异明细行数组，每行为一条人类可读的差异描述；无差异时返回空数组
+     */
+    private function formatSchemaDiff(array $baseSchema, array $currentSchema): array
+    {
+        $diff  = MysqlHelper::schemaCompare($baseSchema, $currentSchema);
+        $lines = [];
+
+        // 表属性差异
+        if (!empty($diff['diffs']['charset'])) {
+            $lines[] = "  [表属性] charset: {$baseSchema['charset']} → {$currentSchema['charset']}";
+        }
+        if (!empty($diff['diffs']['engine'])) {
+            $baseEngine = $baseSchema['engine'] ?? '';
+            $curEngine  = $currentSchema['engine'] ?? '';
+            $lines[]    = "  [表属性] engine: {$baseEngine} → {$curEngine}";
+        }
+
+        // 字段差异（greater：仅基准存在；less：仅当前库存在；diff：两边都有但定义不同）
+        if (!empty($diff['fields'])) {
+            foreach (($diff['fields']['less'] ?? []) as $fieldName) {
+                $lines[] = "  [字段新增] {$fieldName}（仅当前库存在）";
+            }
+            foreach (($diff['fields']['greater'] ?? []) as $fieldName) {
+                $lines[] = "  [字段缺失] {$fieldName}（仅基准文件存在）";
+            }
+            foreach (($diff['fields']['diff'] ?? []) as $fieldName) {
+                $lines[] = "  [字段修改] {$fieldName}";
+                $lines   = array_merge($lines, $this->formatFieldDiff(
+                    $baseSchema['fields'][$fieldName] ?? [],
+                    $currentSchema['fields'][$fieldName] ?? []
+                ));
+            }
+        }
+
+        // 索引差异
+        if (!empty($diff['indexes'])) {
+            foreach (($diff['indexes']['less'] ?? []) as $indexName) {
+                $fields  = '(' . implode(', ', $currentSchema['indexes'][$indexName]['fields'] ?? []) . ')';
+                $lines[] = "  [索引新增] {$indexName} {$fields}（仅当前库存在）";
+            }
+            foreach (($diff['indexes']['greater'] ?? []) as $indexName) {
+                $lines[] = "  [索引缺失] {$indexName}（仅基准文件存在）";
+            }
+            foreach (($diff['indexes']['diff'] ?? []) as $indexName) {
+                $lines[] = "  [索引修改] {$indexName}";
+                $baseIdx = $baseSchema['indexes'][$indexName] ?? [];
+                $curIdx  = $currentSchema['indexes'][$indexName] ?? [];
+                if (($baseIdx['type'] ?? '') !== ($curIdx['type'] ?? '')) {
+                    $lines[] = "      " . str_pad('type', 10) . ": {$baseIdx['type']} → {$curIdx['type']}";
+                }
+                $baseFields = '(' . implode(', ', $baseIdx['fields'] ?? []) . ')';
+                $curFields  = '(' . implode(', ', $curIdx['fields'] ?? []) . ')';
+                if ($baseFields !== $curFields) {
+                    $lines[] = "      " . str_pad('fields', 10) . ": {$baseFields} → {$curFields}";
+                }
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * 格式化单个字段的属性级差异
+     *
+     * 逐属性对比基准与当前的定义，仅输出存在差异的属性行。
+     * comment 为 base64 编码，输出时解码为明文并截断到 30 字符。
+     *
+     * @author  Bowen
+     * @email   bowen@jiuchet.com
+     *
+     * @param array $base    基准文件中的字段定义
+     * @param array $current 当前数据库中的字段定义
+     *
+     * @return array 差异属性行数组；无差异属性时返回空数组
+     */
+    private function formatFieldDiff(array $base, array $current): array
+    {
+        $lines = [];
+
+        // 属性行生成器：[$标签, 基准显示值, 当前显示值]
+        $rows = [
+            ['type', $base['type'] ?? '', $current['type'] ?? ''],
+            // int 系列类型忽略 length 差异（与 MysqlHelper::schemaCompare 的比较口径一致）
+            ['length', $base['length'] ?? '', $current['length'] ?? ''],
+            ['null', empty($base['null']) ? 'NOT NULL' : '允许 NULL', empty($current['null']) ? 'NOT NULL' : '允许 NULL'],
+            ['signed', empty($base['signed']) ? 'unsigned' : '有符号', empty($current['signed']) ? 'unsigned' : '有符号'],
+            ['default', $base['default'] ?? null, $current['default'] ?? null],
+            ['increment', empty($base['increment']) ? '否' : '是', empty($current['increment']) ? '否' : '是'],
+            ['comment', $base['comment'] ?? '', $current['comment'] ?? ''],
+        ];
+
+        foreach ($rows as [$label, $baseValue, $currentValue]) {
+            // int 系列跳过 length，避免输出与 schemaCompare 口径不一致的伪差异
+            if ($label === 'length' && (
+                in_array($base['type'] ?? '', ['int', 'tinyint', 'smallint', 'bigint'])
+                || in_array($current['type'] ?? '', ['int', 'tinyint', 'smallint', 'bigint'])
+            )) {
+                continue;
+            }
+
+            // comment 解码为明文并截断，其余属性转为可读字符串
+            if ($label === 'comment') {
+                $baseValue   = $this->decodeComment($baseValue);
+                $currentValue = $this->decodeComment($currentValue);
+            } elseif ($label === 'default') {
+                $baseValue   = $baseValue === null ? 'NULL' : (string)$baseValue;
+                $currentValue = $currentValue === null ? 'NULL' : (string)$currentValue;
+            }
+
+            if ((string)$baseValue === (string)$currentValue) continue;
+            $lines[] = "      " . str_pad($label, 10) . ": {$baseValue} → {$currentValue}";
+        }
+
+        return $lines;
+    }
+
+    /**
+     * 解码 base64 编码的字段注释为明文，并截断到 30 字符
+     *
+     * @author  Bowen
+     * @email   bowen@jiuchet.com
+     *
+     * @param string $comment base64 编码（或明文）的注释内容
+     *
+     * @return string 明文注释；超过 30 字符时截断并追加省略号
+     */
+    private function decodeComment(string $comment): string
+    {
+        $decoded = @base64_decode($comment, true);
+        if ($decoded !== false && $decoded !== '') {
+            $comment = $decoded;
+        }
+        $comment = trim($comment);
+        if (mb_strlen($comment) > 30) {
+            $comment = mb_substr($comment, 0, 30) . '…';
+        }
+        return $comment === '' ? '(空)' : $comment;
+    }
+
+    /**
      * 检查数据表结构是否发生变化
      *
      * @author  Bowen
@@ -354,8 +506,9 @@ class MakeController extends ConsoleController
         if (empty($schemaFileData) && !$continuesIfEmpty)
             return;
 
-        $fixSql = [];
-        $locDbs = []; // 缓存一份儿在下面遍历时获取过的表结构
+        $fixSql      = [];
+        $diffDetails = []; // 需要修复的表差异明细，[table_name => 差异明细行数组]，聚合到末尾输出
+        $locDbs      = []; // 缓存一份儿在下面遍历时获取过的表结构
         // 根据基准文件进行数据对比
         if (!empty($schemaFileData)) {
             $this->stdout('开始与基准数据对比...' . PHP_EOL);
@@ -376,7 +529,6 @@ class MakeController extends ConsoleController
                 if (!empty($tables) && !in_array($fullTableName, $tables))
                     $delTables[] = $fullTableName;
 
-                $this->stdout("对比【{$fullTableName}】结果：");
                 try {
                     $locDbs[$fullTableName] = MysqlHelper::getTableSchema($fullTableName, true, true, [
                         'resetTableIncrement' => true
@@ -391,7 +543,7 @@ class MakeController extends ConsoleController
                         }
                     }
                 } catch (Exception $e) {
-                    $this->stdout("获取 $fullTableName 表结构失败" . PHP_EOL, Console::FG_RED);
+                    $this->stdout("获取 {$fullTableName} 表结构失败" . PHP_EOL, Console::FG_RED);
                     $this->stdout($e->getCode() . PHP_EOL, Console::FG_RED);
                     $this->stdout($e->getMessage() . PHP_EOL, Console::FG_RED);
                     continue;
@@ -400,9 +552,9 @@ class MakeController extends ConsoleController
                 $allSql = MysqlHelper::makeFixSql($data, $locDbs[$fullTableName], true);
                 if (!empty($allSql)) {
                     $fixSql[$fullTableName] = $allSql;
-                    $this->stdout('需要修复' . PHP_EOL, Console::FG_BLUE);
-                } else {
-                    $this->stdout('结构一致，无需修复' . PHP_EOL, Console::FG_GREEN);
+                    // 结构一致的表静默处理，差异明细聚合到末尾汇总区统一输出，避免刷屏
+                    $diffDetails[$fullTableName] = $this->formatSchemaDiff($data, $locDbs[$fullTableName]);
+                    $this->stdout("【{$fullTableName}】需要修复" . PHP_EOL, Console::FG_BLUE);
                 }
             }
         } else {
@@ -438,10 +590,16 @@ class MakeController extends ConsoleController
             $this->stdout('Done：没有新增表' . PHP_EOL, Console::FG_GREEN);
         }
         if (!empty($count)) {
-            $this->stdout('修复sql语句如下：' . PHP_EOL);
+            $this->stdout(PHP_EOL . "── 以下 {$count} 张表存在结构差异（基准文件 → 当前数据库）──" . PHP_EOL, Console::FG_BLUE);
             foreach ($fixSql as $table => $sql) {
-                $this->stdout("【{$table}】" . PHP_EOL);
-                $this->stdout(implode(PHP_EOL, $sql) . PHP_EOL);
+                $this->stdout(PHP_EOL . "【{$table}】" . PHP_EOL);
+                foreach ($diffDetails[$table] ?? [] as $line) {
+                    $this->stdout($line . PHP_EOL);
+                }
+                $this->stdout('  修复SQL：' . PHP_EOL);
+                foreach ($sql as $s) {
+                    $this->stdout("    {$s}" . PHP_EOL);
+                }
             }
         } else {
             $this->stdout('Done：没有需要修复的数据' . PHP_EOL, Console::FG_GREEN);

@@ -133,6 +133,13 @@ php yii make/db
 php yii make/check --generate=y --continues-if-empty=y
 ```
 
+**check 输出说明：**
+
+- 对比过程中，结构一致的表静默处理，仅对需要修复的表输出一行标记，避免大量无差异表刷屏
+- 对比完成后，所有存在结构差异的表聚合到末尾汇总区，逐表输出「差异明细 + 修复SQL」，便于判断差异是否应当被接纳（重新生成基准文件）
+- 差异明细方向统一为「基准文件 → 当前数据库」，覆盖表属性（charset/engine）、字段（新增/缺失/修改）与索引（新增/缺失/修改）三级
+- 字段修改逐属性对比（type/length/null/default/signed/increment/comment），仅列出不同的属性；int 系列类型忽略 length；注释输出时解码为明文
+
 ## 技术架构
 
 ### 设计模式
